@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>DeepSeek 接口连通性测试</title>
+<style>
+  body{margin:0;padding:24px;background:#0b1b22;color:#e8f6f8;
+       font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px}
+  h1{font-size:18px;margin:0 0 6px}
+  p.tip{color:#8fb2bf;font-size:13px;line-height:1.8;margin:0 0 18px}
+  label{display:block;font-size:12px;color:#8fb2bf;margin:14px 0 6px}
+  input,textarea{width:100%;max-width:720px;padding:10px 12px;border-radius:8px;
+    background:#0f2833;border:1px solid #235062;color:#e8f6f8;font-size:14px;outline:none;font-family:inherit}
+  input:focus,textarea:focus{border-color:#33d6c6}
+  button{margin-top:16px;padding:10px 22px;border:none;border-radius:8px;cursor:pointer;
+    background:linear-gradient(135deg,#5df0e0,#0d8f88);color:#03252c;font-weight:700;font-size:14px}
+  button:disabled{opacity:.6;cursor:wait}
+  pre{margin-top:18px;padding:14px;border-radius:10px;background:#061820;border:1px solid #235062;
+      white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.7;max-width:720px;min-height:60px}
+  .ok{color:#59df9f}
+  .bad{color:#ff7f72}
+  .warn{color:#ffc25c}
+  .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+</style>
+</head>
+<body>
+<h1>DeepSeek 接口连通性测试</h1>
+<p class="tip">
+  这个页面只做一件事：验证「本地双击打开的网页」能不能直接调通 DeepSeek。<br>
+  Key 只留在你自己的浏览器内存里，不会写到任何文件，也不会发到别的地方（只发给 api.deepseek.com）。<br>
+  测试完可以直接删掉这个文件。
+</p>
+
+<label>API Key（sk- 开头）</label>
+<input id="key" type="password" placeholder="sk-...">
+
+<label>模型</label>
+<div class="row">
+  <input id="model" value="deepseek-chat" style="max-width:220px">
+  <label style="margin:0"><input type="checkbox" id="stream"> 用流式（边生成边显示）</label>
+</div>
+
+<label>提问内容</label>
+<input id="prompt" value="用一句话解释：为什么等价无穷小可以替换？">
+
+<button id="go">开始测试</button>
+<pre id="out">等待测试…</pre>
+
+<script>
+const out = document.getElementById('out');
+const btn = document.getElementById('go');
+
+function log(text, cls){
+  out.innerHTML += (out.innerHTML.startsWith('等待测试…') ? '' : '\n') + text;
+  out.innerHTML = out.innerHTML.replace('等待测试…', '');
+}
+
+btn.addEventListener('click', async () => {
+  const key = document.getElementById('key').value.trim();
+  const model = document.getElementById('model').value.trim() || 'deepseek-chat';
+  const prompt = document.getElementById('prompt').value.trim();
+  const useStream = document.getElementById('stream').checked;
+
+  if(!key){ out.innerHTML = '<span class="bad">先把 Key 填上</span>'; return; }
+
+  out.innerHTML = '';
+  btn.disabled = true;
+
+  const body = {
+    model,
+    messages: [
+      {role:'system', content:'你是一条叫 Chris 的呆萌大鱼，说话简短可爱，但数学解释要准确。'},
+      {role:'user', content:prompt}
+    ],
+    stream: useStream
+  };
+
+  const t0 = performance.now();
+  log('→ 请求 https://api.deepseek.com/chat/completions');
+
+  try{
+    const res = await fetch('https://api.deepseek.com/chat/completions', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + key },
+      body: JSON.stringify(body)
+    });
+
+    log('← HTTP ' + res.status + ' ' + (res.ok ? '（连通成功）' : '（失败）'),
+        res.ok ? 'ok' : 'bad');
+
+    if(!res.ok){
+      const txt = await res.text();
+      log(txt.slice(0, 400), 'bad');
+      btn.disabled = false;
+      return;
+    }
+
+    if(useStream){
+      log('\n—— 流式输出 ——', 'warn');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = '';
+      let buf = '';
+      while(true){
+        const {done, value} = await reader.read();
+        if(done) break;
+        buf += decoder.decode(value, {stream:true});
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for(const line of lines){
+          if(!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if(data === '[DONE]') continue;
+          try{
+            const json = JSON.parse(data);
+            const delta = json.choices?.[0]?.delta?.content || '';
+            if(delta){
+              full += delta;
+              out.innerHTML = out.innerHTML.replace(/—— 流式输出 ——[\s\S]*$/, '—— 流式输出 ——\n' + full);
+            }
+          }catch(e){}
+        }
+      }
+      log('\n\n总耗时 ' + Math.round(performance.now()-t0) + 'ms，共 ' + full.length + ' 字', 'ok');
+    }else{
+      const json = await res.json();
+      const text = json.choices?.[0]?.message?.content || '(空)';
+      log('\n—— 回复 ——\n' + text, 'ok');
+      log('\n总耗时 ' + Math.round(performance.now()-t0) + 'ms' +
+          (json.usage ? '，消耗 ' + JSON.stringify(json.usage) : ''), 'ok');
+    }
+  }catch(err){
+    log('\n✗ 请求失败：' + err.message, 'bad');
+    log('常见原因：网络代理拦截 / Key 失效 / 浏览器不允许跨域。', 'warn');
+  }
+
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

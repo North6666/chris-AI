@@ -1,0 +1,2505 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 高数助手 · Chris</title>
+<style>
+/* ========== 1. 设计令牌：赛博霓虹色板 ========== */
+:root{
+  --void:#07060f;
+  --panel:rgba(16,14,32,.72);
+  --line:rgba(37,232,255,.22);
+  --line-bright:rgba(37,232,255,.55);
+  --neon-cyan:#25e8ff;
+  --neon-magenta:#ff2fa6;
+  --neon-amber:#ffb020;
+  --neon-lime:#7cff5e;
+  --fg:#e9f4ff;
+  --fg-dim:#93a6bd;
+  --r-lg:20px;
+  --r-md:12px;
+  /* 引导员描边/辉光（场景切换时覆盖） */
+  --glow:var(--neon-cyan);
+  --glow-shadow:rgba(37,232,255,.4);
+  /* 兼容旧引用 */
+  --deep:var(--void); --ink:var(--fg); --ink-dim:var(--fg-dim);
+  --teal:var(--neon-cyan); --pink:var(--neon-magenta); --purple:var(--neon-magenta);
+  --sun:var(--neon-amber); --green:var(--neon-lime); --rose:#ff5470;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  min-height:100vh;
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+  color:var(--fg);
+  background:var(--void);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+/* 全屏扫描线：细条纹 + 一条缓慢下移的亮带 */
+body::before{
+  content:""; position:fixed; inset:0; z-index:1; pointer-events:none;
+  background:repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px);
+}
+body::after{
+  content:""; position:fixed; inset:0; z-index:1; pointer-events:none;
+  height:220px;
+  background:linear-gradient(180deg, transparent 0%, rgba(37,232,255,.14) 50%, transparent 100%);
+  animation:scan 4.5s linear infinite;
+}
+@keyframes scan{0%{transform:translateY(-100%)} 100%{transform:translateY(120vh)}}
+
+button{font-family:inherit}
+
+/* ========== 2. 顶栏：霓虹发光 ========== */
+.topbar{
+  position:sticky; top:0; z-index:20;
+  display:flex; align-items:center; gap:18px;
+  padding:14px 22px;
+  background:rgba(5,6,14,.78);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(176,95,255,.3);
+  box-shadow:0 2px 24px rgba(176,95,255,.18);
+}
+.brand{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.5px}
+.brand .dot{
+  width:26px; height:26px; border-radius:50%;
+  background:radial-gradient(circle at 34% 30%, #ff8bd0, var(--pink));
+  box-shadow:0 0 16px rgba(255,42,138,.6), 0 0 40px rgba(176,95,255,.3);
+}
+.brand small{font-weight:400; color:var(--ink-dim); font-size:12px}
+
+.nav{display:flex; gap:6px; margin-left:auto}
+.nav button{
+  border:1px solid rgba(176,95,255,.15); background:transparent; color:var(--ink-dim);
+  padding:7px 14px; border-radius:999px; font-size:14px; cursor:pointer;
+  transition:.2s;
+}
+.nav button:hover{color:var(--ink); background:rgba(176,95,255,.1); border-color:rgba(176,95,255,.4)}
+.nav button.active{color:#fff; background:linear-gradient(135deg,var(--pink),var(--purple)); font-weight:600; border-color:transparent; box-shadow:0 0 14px rgba(255,42,138,.4)}
+
+.streak{
+  font-size:13px; color:var(--sun); border:1px solid rgba(255,194,92,.35);
+  padding:6px 12px; border-radius:999px; white-space:nowrap;
+  box-shadow:0 0 10px rgba(255,194,92,.15);
+}
+
+/* ========== 3. 页面骨架 ========== */
+main{max-width:1200px; margin:0 auto; padding:26px 22px 80px}
+.panel{display:none}
+.panel.active{display:block; animation:fade .3s ease}
+@keyframes fade{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+
+.card{
+  background:linear-gradient(180deg,var(--panel-1),var(--panel-2));
+  border:1px solid rgba(176,95,255,.18);
+  border-radius:var(--r-lg);
+  padding:22px;
+  position:relative;
+}
+
+.muted{color:var(--ink-dim); font-size:13px; line-height:1.7}
+h2{margin:0 0 4px; font-size:19px}
+h3{margin:0 0 10px; font-size:15px; color:var(--ink)}
+
+/* ========== 4. 首页：tank 单栏 Hero + 常驻引导员 ========== */
+.tank{display:block; position:relative}
+.tank-info{display:flex; flex-direction:column; gap:16px}
+/* Hero 视差：滚动时整体上移淡出，只作用首页这一卡 */
+.hero-card{transition:transform .05s linear, opacity .05s linear}
+.fish-name{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+.fish-name h1{margin:0; font-size:30px; letter-spacing:.5px;
+  background:linear-gradient(90deg,#fff,var(--teal)); -webkit-background-clip:text; background-clip:text; color:transparent}
+.tag{
+  font-size:12px; padding:3px 10px; border-radius:999px;
+  border:1px solid var(--purple); color:var(--purple);
+  box-shadow:0 0 8px rgba(176,95,255,.25);
+}
+.speech{display:none}  /* 主台词现在在引导员气泡里 */
+.level-row{display:flex; align-items:center; gap:10px; font-size:12px; color:var(--ink-dim)}
+.expbar{flex:1; height:8px; background:rgba(255,255,255,.08); border-radius:999px; overflow:hidden; border:1px solid rgba(176,95,255,.2)}
+.expbar i{display:block; height:100%; width:0; background:linear-gradient(90deg,var(--pink),var(--purple),var(--teal)); border-radius:999px; transition:width .5s}
+
+/* 今日复习清单块 */
+.review-box{
+  background:rgba(5,6,14,.55);
+  border:1px dashed rgba(255,42,138,.4);
+  border-radius:var(--r-md);
+  padding:14px 16px;
+}
+.review-box h3{margin:0 0 10px; font-size:13px; color:var(--pink); letter-spacing:.5px}
+.review-item{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:7px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:13px;
+}
+.review-item:last-child{border-bottom:none}
+.review-item .topic-n{color:var(--ink)}
+.review-item .reason{color:var(--ink-dim); font-size:12px}
+.review-item .days-badge{
+  font-size:11px; padding:2px 8px; border-radius:999px;
+  background:rgba(255,42,138,.15); color:var(--pink);
+}
+.review-item .days-badge.warn{background:rgba(255,127,114,.15); color:var(--rose)}
+
+/* ========== 5. 常驻引导员：全身立绘（表情靠 CSS 滤镜表达） ========== */
+.guide{
+  position:fixed; right:26px; bottom:36px; z-index:40;
+  width:150px; pointer-events:none; user-select:none;
+}
+/* 全身立绘（表情由 CSS 滤镜 + 位移表达，不再有小头像） */
+.guide-body{
+  height:200px; overflow:hidden;
+  pointer-events:auto; cursor:grab;
+  animation:guide-breathe 3.6s ease-in-out infinite;
+  filter:drop-shadow(0 0 18px rgba(37,232,255,.25));
+  transition:filter .4s, transform .3s;
+}
+.guide-body img{
+  display:block; height:200px; width:auto;
+  object-fit:contain;
+  margin-bottom:-6%;               /* 底部 6% 溢出被 overflow:hidden 裁掉，留一点余量 */
+  transition:filter .25s ease, transform .25s ease;
+}
+.guide-body:hover{animation-play-state:paused; transform:scale(1.03); filter:drop-shadow(0 0 26px rgba(37,232,255,.45))}
+/* 四种表情对应的 CSS class，由 applyExpr() 动态切换 */
+.guide-body img.expr-happy{ filter:saturate(1.15) brightness(1.06); transform:translateY(-2px) }
+.guide-body img.expr-sad{   filter:saturate(.75)  brightness(.94); transform:translateY(2px)  }
+.guide-body img.expr-coax{  filter:saturate(1.05); animation:guide-breathe 3.6s ease-in-out infinite, guide-coax .7s ease-in-out infinite .2s }
+.guide-body img.expr-idle{  filter:none }
+/* coax 表情专用的左右轻微摇摆 */
+@keyframes guide-coax{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-1.5px)}
+  75%{transform:translateX(1.5px)}
+}
+/* 脚下阴影 */
+.guide-shadow{
+  width:90px; height:18px; margin:-8px auto 0; border-radius:50%;
+  background:radial-gradient(ellipse,rgba(37,232,255,.35),transparent 70%);
+  filter:blur(6px);
+}
+@keyframes guide-breathe{0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)}}
+
+/* 气泡（立绘上方，不挡点击） */
+.guide-bubble{
+  position:absolute; bottom:206px; right:-10px;
+  max-width:220px;
+  padding:9px 13px; font-size:13px; line-height:1.7;
+  color:var(--fg);
+  background:rgba(7,6,15,.9);
+  border:1px solid var(--glow,#25e8ff);
+  border-radius:14px;
+  box-shadow:0 0 14px var(--glow-shadow,rgba(37,232,255,.4));
+  pointer-events:none;
+  opacity:0; transform:translateY(4px) scale(.96);
+  transition:opacity .4s ease, transform .4s ease;
+}
+.guide-bubble.show{opacity:1; transform:none}
+.guide-bubble::after{
+  content:""; position:absolute; top:-8px; right:36px;
+  width:12px; height:12px; background:rgba(7,6,15,.9);
+  border-left:1px solid var(--glow,#25e8ff); border-top:1px solid var(--glow,#25e8ff);
+  transform:rotate(45deg);
+}
+.guide-bubble .cursor{
+  display:inline-block; width:2px; height:13px; background:var(--glow,#25e8ff);
+  margin-left:1px; vertical-align:middle;
+  animation:blink-cur .9s steps(2) infinite;
+}
+@keyframes blink-cur{50%{opacity:0}}
+
+/* 拖拽时禁止动画 */
+.guide.is-dragging .guide-body{animation:none; cursor:grabbing}
+.guide.is-dragging{transition:none}
+
+/* 滚动进度条（顶部，渐变改赛博三色） */
+.scroll-bar{
+  position:fixed; top:0; left:0; height:2px; width:0; z-index:60;
+  background:linear-gradient(90deg,#25e8ff,#ff2fa6,#ffb020);
+  box-shadow:0 0 8px rgba(37,232,255,.6);
+}
+
+/* 页面底部留白，避免被引导员遮住 */
+main{padding-bottom:210px}
+
+/* 响应式：移动端缩小引导员 */
+@media (max-width:860px){
+  .guide{width:110px; right:14px; bottom:20px}
+  .guide-body{height:140px}
+  .guide-body img{height:140px}
+  .guide-bubble{bottom:148px; max-width:180px; right:-6px; font-size:12px}
+  .guide-shadow{width:64px; height:14px}
+  main{padding-bottom:160px}
+}
+
+/* ========== 7. 通用按钮 ========== */
+.btn{
+  border:none; cursor:pointer; font-size:14px; padding:10px 18px;
+  border-radius:10px; transition:.18s; font-weight:600;
+}
+.btn.primary{background:linear-gradient(135deg,var(--pink),var(--purple)); color:#fff; box-shadow:0 0 14px rgba(255,42,138,.3)}
+.btn.primary:hover{filter:brightness(1.1); transform:translateY(-1px)}
+.btn.ghost{background:rgba(176,95,255,.08); color:var(--ink); border:1px solid var(--line)}
+.btn.ghost:hover{background:rgba(176,95,255,.15); border-color:var(--purple)}
+
+/* ========== 6. 首页：数据小格 ========== */
+.grid-3{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+.stat{padding:16px 18px; border-radius:var(--r-md); background:rgba(176,95,255,.05); border:1px solid var(--line)}
+.stat b{display:block; font-size:24px; font-variant-numeric:tabular-nums; color:var(--teal)}
+.stat span{font-size:12px; color:var(--ink-dim)}
+
+/* ========== 7. 对比条 ========== */
+.compare{margin-top:16px; border:1px dashed rgba(176,95,255,.35); border-radius:var(--r-md); padding:0 18px}
+.compare summary{cursor:pointer; padding:14px 0; font-size:14px; color:var(--pink); outline:none}
+.compare .rows{border-top:1px dashed var(--line); padding:6px 0 16px}
+.row{display:grid; grid-template-columns:110px 1fr 1fr; gap:12px; padding:8px 0; font-size:13px; line-height:1.6; border-bottom:1px solid rgba(255,255,255,.05)}
+.row:last-child{border-bottom:none}
+.row .k{color:var(--ink-dim)}
+.row .ai{color:#9a8ec0; opacity:.75}
+.row .chris{color:var(--teal)}
+
+/* ========== 8. 练习页布局 ========== */
+.practice{display:grid; grid-template-columns:250px 1fr; gap:18px; align-items:start}
+.topic-tree{padding:14px}
+.topic{
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:11px 12px; border-radius:10px; cursor:pointer; font-size:14px;
+  border:1px solid transparent; transition:.15s;
+}
+.topic:hover{background:rgba(176,95,255,.08)}
+.topic.active{background:rgba(255,42,138,.12); border-color:rgba(255,42,138,.4)}
+.topic .glyph{
+  width:26px; height:26px; display:grid; place-items:center; flex:none;
+  border-radius:8px; background:rgba(176,95,255,.15); color:var(--purple); font-size:13px;
+}
+.topic .acc{font-size:11px; color:var(--ink-dim)}
+
+.diff-row{display:flex; gap:8px; flex-wrap:wrap; margin:14px 0 4px}
+.diff{
+  padding:7px 14px; border-radius:999px; font-size:13px; cursor:pointer;
+  border:1px solid var(--line); background:transparent; color:var(--ink-dim);
+}
+.diff.active{background:rgba(176,95,255,.15); border-color:var(--purple); color:var(--purple)}
+
+.qmeta{display:flex; gap:8px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--ink-dim)}
+.chip{padding:3px 9px; border-radius:999px; background:rgba(176,95,255,.1)}
+.reason{
+  margin:12px 0 0; font-size:12.5px; color:var(--sun);
+  background:rgba(255,194,92,.08); border:1px dashed rgba(255,194,92,.28);
+  padding:9px 12px; border-radius:10px; line-height:1.6;
+}
+.stem{font-size:16.5px; line-height:1.85; margin:16px 0 14px; white-space:pre-wrap}
+
+.opts{display:grid; gap:10px}
+.opt{
+  display:flex; gap:10px; align-items:flex-start;
+  padding:12px 14px; border-radius:11px; cursor:pointer; font-size:14.5px;
+  border:1px solid var(--line); background:rgba(255,255,255,.03); transition:.15s;
+}
+.opt:hover{border-color:var(--purple)}
+.opt .key{
+  flex:none; width:22px; height:22px; border-radius:50%; display:grid; place-items:center;
+  font-size:12px; background:rgba(255,255,255,.09); color:var(--ink-dim);
+}
+.opt.picked{border-color:var(--pink); background:rgba(255,42,138,.12)}
+.opt.picked .key{background:var(--pink); color:#fff}
+.opt.right{border-color:var(--green); background:rgba(89,223,159,.12)}
+.opt.right .key{background:var(--green); color:#04222b}
+.opt.wrong{border-color:var(--rose); background:rgba(255,127,114,.12)}
+.opt.wrong .key{background:var(--rose); color:#2a0d0a}
+.opt.locked{cursor:default}
+
+.fill{
+  width:100%; padding:13px 14px; border-radius:11px; font-size:15px;
+  background:rgba(255,255,255,.04); border:1px solid var(--line); color:var(--ink);
+  outline:none;
+}
+.fill:focus{border-color:var(--purple)}
+
+/* 判分结果 */
+.result{margin-top:16px; border-radius:var(--r-md); padding:14px 16px; font-size:14px; line-height:1.8; animation:fade .3s}
+.result.ok{background:rgba(89,223,159,.1); border:1px solid rgba(89,223,159,.35)}
+.result.no{background:rgba(255,127,114,.1); border:1px solid rgba(255,127,114,.35)}
+.result b{font-size:15px}
+.explain{margin-top:8px; padding-top:10px; border-top:1px dashed rgba(255,255,255,.15); color:#d6e8ec}
+/* 结构化解析：考点/思路/步骤/易错/同类 五行 */
+.explain-step{display:flex; gap:10px; margin:6px 0; line-height:1.7; font-size:13.5px}
+.explain-key{flex:0 0 52px; color:#7cff5e; font-size:12px; letter-spacing:.5px; padding-top:1px}
+.explain-val{flex:1; color:#d6e8ec; word-break:break-word}
+
+/* ========== 9. 错题本 & 画像 ========== */
+.wrong-item{padding:14px 0; border-bottom:1px solid rgba(255,255,255,.06)}
+.wrong-item:last-child{border-bottom:none}
+.wrong-item .stem{font-size:14.5px; margin:8px 0}
+.wrong-meta{display:flex; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--ink-dim)}
+.wrong-meta .bad{color:var(--rose)}
+details.more summary{cursor:pointer; font-size:12.5px; color:var(--pink); margin-top:6px; outline:none}
+
+.mastery-row{display:grid; grid-template-columns:88px 1fr 76px; gap:12px; align-items:center; padding:11px 0}
+.mbar{height:9px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden}
+.mbar i{display:block; height:100%; border-radius:999px; transition:width .4s}
+.mval{font-size:12px; text-align:right; color:var(--ink-dim); font-variant-numeric:tabular-nums}
+.weak{color:var(--rose); font-size:11px; margin-left:4px}
+
+.empty{padding:26px 6px; text-align:center; color:var(--ink-dim); font-size:14px; line-height:1.9}
+footer{max-width:1200px; margin:0 auto; padding:0 22px 30px; color:#5c4e85; font-size:12px; line-height:1.8}
+
+@media (max-width:860px){
+  .practice{grid-template-columns:1fr}
+  .tank{text-align:center}
+  .fish-name{justify-content:center}
+  .grid-3{grid-template-columns:1fr}
+  .row{grid-template-columns:1fr; gap:2px; padding:12px 0}
+  .nav button{padding:6px 10px; font-size:13px}
+  .brand small{display:none}
+}
+
+/* ========== 设置齿轮 + 弹窗 ========== */
+.gear{
+  margin-left:6px; border:none; background:rgba(176,95,255,.12); color:var(--ink-dim);
+  width:34px; height:34px; border-radius:50%; cursor:pointer; font-size:18px; line-height:1;
+}
+.gear:hover{color:var(--ink); background:rgba(255,42,138,.2)}
+.modal{
+  position:fixed; inset:0; z-index:50; display:grid; place-items:center;
+  background:rgba(5,6,14,.8); backdrop-filter:blur(6px); padding:18px;
+}
+.modal[hidden]{display:none}
+.modal-card{
+  width:100%; max-width:520px; max-height:90vh; overflow:auto;
+  background:linear-gradient(180deg,var(--panel-1),var(--panel-2));
+  border:1px solid var(--line); border-radius:var(--r-lg); padding:22px;
+}
+.modal-head{display:flex; justify-content:space-between; align-items:center}
+.close-x{border:none; background:none; color:var(--ink-dim); font-size:26px; cursor:pointer; line-height:1}
+.lbl{display:block; font-size:12px; color:var(--ink-dim); margin:12px 0 6px}
+.si{
+  width:100%; padding:10px 12px; border-radius:10px; font-size:14px;
+  background:rgba(255,255,255,.05); border:1px solid var(--line); color:var(--ink); outline:none;
+}
+.si:focus{border-color:var(--purple)}
+.row-check{display:flex; align-items:center; gap:8px; margin-top:10px; font-size:13px; color:var(--ink-dim); cursor:pointer}
+.vis-section summary{cursor:pointer; color:var(--ink-dim); font-size:13px; outline:none}
+.modal-foot{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:22px}
+.conn-status{font-size:12px}
+.conn-status.ok{color:var(--green)}
+.conn-status.bad{color:var(--rose)}
+
+/* ========== 问答页 ========== */
+.chat-wrap{display:flex; flex-direction:column; height:72vh}
+.chat-head h2{margin:0}
+.chat-messages{
+  flex:1; overflow:auto; padding:14px 0; display:flex; flex-direction:column; gap:12px;
+}
+.msg{
+  max-width:82%; padding:11px 15px; border-radius:14px; font-size:14.5px; line-height:1.7;
+  white-space:pre-wrap; word-break:break-word;
+}
+.msg.user{
+  align-self:flex-end; background:rgba(176,95,255,.18); border:1px solid rgba(176,95,255,.35);
+  border-bottom-right-radius:4px;
+}
+.msg.fish{
+  align-self:flex-start; background:rgba(255,255,255,.06); border:1px solid var(--line);
+  border-bottom-left-radius:4px;
+}
+.msg.system{
+  align-self:center; background:rgba(255,194,92,.1); border:1px dashed rgba(255,194,92,.3);
+  color:var(--sun); font-size:12.5px; max-width:95%; padding:8px 14px; border-radius:10px;
+}
+.chat-input-row{display:flex; gap:10px; align-items:center; margin-top:12px}
+.attach-btn{
+  display:grid; place-items:center; width:44px; height:44px; border-radius:10px;
+  background:rgba(176,95,255,.12); border:1px solid var(--line); cursor:pointer; font-size:20px;
+}
+.chat-input{
+  flex:1; padding:12px 14px; border-radius:10px; font-size:14.5px;
+  background:rgba(255,255,255,.04); border:1px solid var(--line); color:var(--ink); outline:none;
+}
+.chat-input:focus{border-color:var(--purple)}
+.img-preview{margin-top:10px; display:flex; gap:10px; flex-wrap:wrap}
+.img-preview img{max-height:120px; border-radius:10px; border:1px solid var(--line)}
+.typing{display:inline-flex; gap:4px; align-items:center}
+.typing span{
+  width:6px; height:6px; border-radius:50%; background:var(--ink-dim);
+  animation:blink 1.2s infinite both;
+}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,80%,100%{opacity:.2; transform:translateY(0)} 40%{opacity:1; transform:translateY(-4px)}}
+
+/* ========== 场景切换：只改 --glow 变量，不整页变色 ========== */
+body.scene-calm{--glow:#25e8ff; --glow-shadow:rgba(37,232,255,.4)}
+body.scene-happy{--glow:#7cff5e; --glow-shadow:rgba(124,255,94,.45)}
+body.scene-alert{--glow:#ff5470; --glow-shadow:rgba(255,84,112,.45)}
+body.scene-calm, body.scene-happy, body.scene-alert{transition:background 1.2s ease}
+
+/*打字机气泡 */
+#guideBubbleText{white-space:pre-wrap; word-break:break-word}
+
+/* ========== Canvas 2D 极简 3D 渲染器（赛博城背景） ========== */
+#scene{
+  position:fixed; inset:0; z-index:-2; pointer-events:none;
+  will-change:transform, opacity;
+}
+/* 星云光斑（最远层，跟 Canvas 叠加产生发光感） */
+#bg-nebula{
+  position:fixed; inset:0; z-index:-1; pointer-events:none;
+  mix-blend-mode:screen;
+  background:
+    radial-gradient(900px 500px at 20% -10%, rgba(37,232,255,.22) 0%, transparent 65%),
+    radial-gradient(800px 500px at 80% 120%, rgba(255,47,166,.18) 0%, transparent 65%);
+  opacity:.55;
+}
+/* 近景模糊光斑 */
+#bg-glow{
+  position:fixed; inset:0; z-index:-1; pointer-events:none;
+  background:
+    radial-gradient(420px 420px at 10% 60%, rgba(255,47,166,.22) 0%, transparent 70%),
+    radial-gradient(420px 420px at 92% 10%, rgba(37,232,255,.2) 0%, transparent 70%);
+}
+
+/* ========== 赛博卡片区：切角 + 角标 + 进场 ========== */
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:0;
+  clip-path:polygon(14px 0,100% 0,100% calc(100% - 14px),calc(100% - 14px) 100%,0 100%,0 14px);
+  backdrop-filter:blur(12px);
+  position:relative;
+}
+.card::before{content:""; position:absolute; top:6px; left:6px;
+  width:22px; height:22px; border-top:2px solid var(--line-bright); border-left:2px solid var(--line-bright); pointer-events:none}
+.card::after{content:""; position:absolute; bottom:6px; right:6px;
+  width:22px; height:22px; border-bottom:2px solid var(--line-bright); border-right:2px solid var(--line-bright); pointer-events:none}
+
+/* 故障字（首页标题） */
+.glitch{position:relative; display:inline-block}
+.glitch::before, .glitch::after{content:attr(data-text); position:absolute; inset:0; pointer-events:none}
+.glitch::before{color:var(--neon-cyan); clip-path:inset(0 0 60% 0); animation:glitch-a 3.4s steps(2,end) infinite; transform:translate(-2px,0)}
+.glitch::after{color:var(--neon-magenta); clip-path:inset(55% 0 0 0); animation:glitch-b 2.9s steps(2,end) infinite; transform:translate(2px,0)}
+@keyframes glitch-a{0%,100%{clip-path:inset(0 0 60% 0)} 30%{clip-path:inset(40% 0 20% 0)}}
+@keyframes glitch-b{0%,100%{clip-path:inset(55% 0 0 0)} 30%{clip-path:inset(10% 0 50% 0)}}
+
+/* 卡片进场 */
+.reveal{opacity:0; transform:translateY(14px); transition:.62s cubic-bezier(.16,1,.3,1)}
+.reveal.in{opacity:1; transform:none}
+
+/* 页脚跑马灯 */
+.marquee{
+  position:fixed; left:0; right:0; bottom:0; z-index:30;
+  height:24px; overflow:hidden;
+  background:rgba(7,6,15,.88);
+  border-top:1px solid var(--line);
+  font-family:"JetBrains Mono","IBM Plex Mono",ui-monospace,Menlo,monospace;
+  font-size:12px; letter-spacing:.5px;
+}
+.marquee > span{display:inline-block; white-space:nowrap;
+  animation:marquee 9s linear infinite; color:var(--line-bright)}
+@keyframes marquee{from{transform:translateX(0)} to{transform:translateX(-50%)}}
+body{padding-bottom:24px}
+@media (max-width:860px){.marquee{display:none}; body{padding-bottom:0}}
+
+/* 桌面端左侧 HUD 竖排 */
+@media (min-width:861px){
+  .hud-rail{
+    position:fixed; left:14px; top:50%; transform:translateY(-50%); z-index:35;
+    display:flex; flex-direction:column; gap:6px;
+    font-family:"JetBrains Mono","IBM Plex Mono",ui-monospace,Menlo,monospace;
+    font-size:12px;
+  }
+  .hud-rail .hud-item{padding:6px 10px; cursor:pointer; border-left:2px solid transparent; color:var(--fg-dim); transition:.2s}
+  .hud-rail .hud-item:hover{color:var(--fg)}
+  .hud-rail .hud-item.active{color:var(--neon-cyan); border-left-color:var(--neon-cyan)}
+}
+@media (max-width:860px){.hud-rail{display:none}}
+
+/* 右下遥测小面板 */
+.telemetry{
+  position:fixed; right:166px; bottom:40px; z-index:35;
+  font-family:"JetBrains Mono","IBM Plex Mono",ui-monospace,Menlo,monospace;
+  font-size:11px; line-height:1.6;
+  padding:8px 10px;
+  background:rgba(7,6,15,.85);
+  border:1px solid var(--line);
+  border-radius:6px;
+  color:var(--fg-dim); pointer-events:none; max-width:150px;
+}
+.telemetry b{color:var(--neon-cyan); font-weight:600}
+@media (max-width:860px){.telemetry{display:none}}
+</style>
+</head>
+<body>
+
+<!-- ========== 赛博城背景层：Canvas 2D 极简 3D + 星云光斑 ========== -->
+<canvas id="scene"></canvas>
+<div id="bg-nebula"></div>
+<div id="bg-glow"></div>
+<div class="scroll-bar" id="scrollBar"></div>
+
+<!-- ========== 左侧 HUD 竖排（桌面端） ========== -->
+<nav class="hud-rail" id="hudRail">
+  <div class="hud-item active" data-tab="home">01 首页</div>
+  <div class="hud-item" data-tab="practice">02 练习</div>
+  <div class="hud-item" data-tab="wrong">03 错题本</div>
+  <div class="hud-item" data-tab="profile">04 画像</div>
+  <div class="hud-item" data-tab="chat">05 问问 Chris</div>
+</nav>
+
+<!-- ========== 右下遥测小面板 ========== -->
+<div class="telemetry" id="telemetry">
+  <div>FPS <b id="telFps">60</b></div>
+  <div>TODAY <b id="telToday">0</b>/<span id="telGoal">8</span></div>
+  <div>ACC <b id="telAcc">--</b></div>
+  <div>CHAP <b id="telChap">--</b></div>
+</div>
+
+<!-- ========== 顶栏 ========== -->
+<header class="topbar">
+  <div class="brand"><span class="dot"></span>AI 高数助手 <small>Chris</small></div>
+  <nav class="nav">
+    <button data-tab="home" class="active">首页</button>
+    <button data-tab="practice">练习</button>
+    <button data-tab="chat">问问 Chris</button>
+    <button data-tab="wrong">错题本</button>
+    <button data-tab="profile">我的画像</button>
+  </nav>
+  <div class="streak" id="streakBadge">连续 0 天</div>
+  <button class="gear" data-act="open-settings" title="设置">⚙</button>
+</header>
+
+<main>
+
+  <!-- ========== 面板一：首页 ========== -->
+  <section class="panel active" id="tab-home">
+    <!-- Hero 视差块：滚动时整体上移 + 淡出 -->
+    <div class="tank hero-card">
+      <div class="tank-info card">
+        <div class="fish-name">
+          <h1 class="glitch" data-text="Chris">Chris</h1>
+          <span class="tag" id="levelTag">Lv.1 新人</span>
+          <span class="streak" id="streakBadge">连续 0 天</span>
+        </div>
+        <div class="speech" id="chrisLine"></div>
+        <div class="level-row">
+          <span>成长</span>
+          <div class="expbar"><i id="expFill"></i></div>
+          <span id="expText">0 / 100</span>
+        </div>
+
+        <div class="grid-3">
+          <div class="stat"><b id="todayCount">0</b><span>今日答题</span></div>
+          <div class="stat"><b id="todayAcc">—</b><span>今日正确率</span></div>
+          <div class="stat"><b id="wrongCount">0</b><span>累计错题</span></div>
+        </div>
+
+        <!-- 今日复习清单 -->
+        <div class="review-box" id="reviewBox">
+          <h3>★ 今日应该复习</h3>
+          <div id="reviewList"><div class="empty" style="padding:6px">暂时没有到期的复习项</div></div>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap">
+          <button class="btn primary" data-act="quick">继续练习</button>
+          <button class="btn ghost" data-act="go-wrong">看错题本</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 对比条：把"和传统 AI 的区别"摊开给评审看 -->
+    <details class="compare" style="margin-top:18px">
+      <summary>为什么不是直接打开 DeepSeek 问？</summary>
+      <div class="rows">
+        <div class="row"><span class="k">记忆</span><span class="ai">关掉对话就忘了你</span><span class="chris">记住你的错题和薄弱点</span></div>
+        <div class="row"><span class="k">出题依据</span><span class="ai">通用题，不知道你哪弱</span><span class="chris">按你的正确率加权出题</span></div>
+        <div class="row"><span class="k">判分</span><span class="ai">给你答案，自己对</span><span class="chris">即时判分、留痕、进错题本</span></div>
+        <div class="row"><span class="k">节奏</span><span class="ai">你不问，它不出现</span><span class="chris">每天告诉你该复习哪几个点</span></div>
+        <div class="row"><span class="k">可控性</span><span class="ai">可能超纲、答案不稳</span><span class="chris">限定章节、内置题库兜底</span></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- ========== 面板二：练习 ========== -->
+  <section class="panel" id="tab-practice">
+    <div class="practice">
+      <aside class="card topic-tree">
+        <h3>选一个知识点</h3>
+        <p class="muted" style="margin:0 0 10px">高数上册主线，按章节排的</p>
+        <div id="topicList"></div>
+      </aside>
+
+      <div>
+        <div class="card">
+          <div class="qmeta">
+            <span class="chip" id="curTopicName">未选择知识点</span>
+            <span class="chip" id="curDiffName">难度：全部</span>
+          </div>
+          <div class="diff-row">
+            <button class="diff active" data-diff="0">全部</button>
+            <button class="diff" data-diff="1">基础</button>
+            <button class="diff" data-diff="2">进阶</button>
+            <button class="diff" data-diff="3">挑战</button>
+          </div>
+          <button class="btn primary" data-act="gen" style="margin-top:8px">出一道题</button>
+        </div>
+
+        <div id="qcard" style="margin-top:16px">
+          <div class="card empty">左边选个知识点，点「出一道题」开始。<br>（现在是离线题库版，AI 出题下一版接上）</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 面板三：问问 Chris ========== -->
+  <section class="panel" id="tab-chat">
+    <div class="card chat-wrap">
+      <div class="chat-head">
+        <h2>问问 Chris</h2>
+        <p class="muted">打字或拍照都行。它回答完会顺便问你「要不要练一题同知识点的」。</p>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="msg fish">你好呀～我是 Chris。高数有什么不会的，拍照或打字问我都行。</div>
+      </div>
+      <div class="chat-input-row">
+        <label class="attach-btn" title="上传图片">📷<input type="file" id="chatImg" accept="image/*" hidden></label>
+        <input class="chat-input" id="chatInput" placeholder="例如：为什么 sin x / x 在 x→0 时等于 1？">
+        <button class="btn primary" id="chatSend">发送</button>
+      </div>
+      <div id="chatImgPreview" class="img-preview"></div>
+    </div>
+  </section>
+
+  <!-- ========== 面板四：错题本 ========== -->
+  <section class="panel" id="tab-wrong">
+    <div class="card">
+      <h2>错题本</h2>
+      <p class="muted" id="wrongHint">这里会自动收下你答错的每一道题。</p>
+      <div id="wrongList"></div>
+    </div>
+  </section>
+
+  <!-- ========== 面板四：画像 = -->
+  <section class="panel" id="tab-profile">
+    <div class="card">
+      <h2>掌握度画像</h2>
+      <p class="muted" id="profileHint">每个知识点一个条，低于 60% 会标「薄弱」。</p>
+      <div id="masteryList" style="margin-top:14px"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  演示版 · 数据只存在你自己浏览器里（localStorage），不会上传任何地方。Key 默认只存当前会话。
+</footer>
+
+<!-- ========== 页脚跑马灯（赛博数据条） ========== -->
+<div class="marquee">
+  <span>▚ NEON STUDY GRID ▞ DAILY 8 QUESTIONS ▞ SYNC OK ▞ NEURAL ALIGN ▞ 主人今天也要加油哦～ ▞ AI 高数助手 CHRIS ▞ NEON STUDY GRID ▞ DAILY 8 QUESTIONS ▞ SYNC OK ▞ NEURAL ALIGN ▞ 主人今天也要加油哦～ ▞ AI 高数助手 CHRIS ▞</span>
+</div>
+
+<!-- ========== 常驻引导员：全身立绘（表情靠 CSS 滤镜表达） ========== -->
+<div class="guide" id="guide" data-act="guide">
+  <!-- 气泡（默认隐藏，打字机显示后 show） -->
+  <div class="guide-bubble" id="guideBubble">
+    <span id="guideBubbleText">主人，今天也练一道嘛～</span><span class="cursor"></span>
+  </div>
+  <!-- 全身立绘（表情靠 CSS class 切换滤镜和位移） -->
+  <div class="guide-body" id="guideBody">
+    <img id="guideFullImg" class="expr-idle" src="assets/chris_full.png" alt="Chris"
+         onerror="this.style.display='none'">
+  </div>
+  <!-- 脚下阴影 -->
+  <div class="guide-shadow"></div>
+</div>
+
+<!-- ========== 设置弹窗 ========== -->
+<div class="modal" id="settingsModal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>设置</h2>
+      <button class="close-x" data-act="close-settings">×</button>
+    </div>
+
+    <h3 style="margin-top:6px">文本模型（出题 + 问答）</h3>
+    <label class="lbl">接口地址（Base URL）</label>
+    <input class="si" id="cfgBase" value="https://api.deepseek.com">
+    <label class="lbl">模型名</label>
+    <input class="si" id="cfgModel" value="deepseek-chat">
+    <label class="lbl">API Key（可选）</label>
+    <input class="si" id="cfgKey" type="password" placeholder="不填也能用：线上走服务器内置 Key" autocomplete="off">
+    <p class="muted" style="font-size:12px;margin:4px 0 0">不填 Key 时：线上版由服务器代为调用（每天有次数上限）；本地双击打开则用离线题库。</p>
+    <label class="row-check">
+      <input type="checkbox" id="cfgRemember"> 记住此 Key（存到本地，仅你这台设备能看到）
+    </label>
+
+    <details class="vis-section" style="margin-top:18px">
+      <summary>视觉模型（拍题/上传图片，可选）</summary>
+      <p class="muted">DeepSeek 不支持读图，这里可填支持视觉的模型（豆包/通义 VL 等，OpenAI 兼容接口）。不填则只能文字提问。</p>
+      <label class="lbl">视觉模型接口地址</label>
+      <input class="si" id="cfgVisBase" placeholder="例如 https://dashscope.aliyuncs.com/compatible-mode/v1">
+      <label class="lbl">视觉模型名</label>
+      <input class="si" id="cfgVisModel" placeholder="例如 qwen-vl-plus">
+      <label class="lbl">视觉模型 Key</label>
+      <input class="si" id="cfgVisKey" type="password" placeholder="选填" autocomplete="off">
+    </details>
+
+    <div class="modal-foot">
+      <button class="btn ghost" data-act="test-conn">测试连接</button>
+      <span id="connStatus" class="conn-status"></span>
+      <button class="btn primary" data-act="save-settings">保存</button>
+      <button class="btn ghost" data-act="clear-key">清除 Key</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   一、数据区：章节 + 离线题库
+   说明：这些是"死数据"，先写死在前端，后面接 AI 时它会变成兜底题库
+   ========================================================= */
+const TOPICS = [
+  {id:'limit',       name:'极限',              glyph:'∞',  desc:'数列极限、等价无穷小、两个重要极限'},
+  {id:'derivative',  name:'导数与微分',        glyph:'f′', desc:'求导公式、复合函数、隐函数'},
+  {id:'mvt',         name:'中值定理与导数应用', glyph:'Δ',  desc:'罗尔/拉格朗日、单调性、极值'},
+  {id:'indefinite',  name:'不定积分',          glyph:'∫',  desc:'凑微分、换元、分部积分'},
+  {id:'definite',    name:'定积分',            glyph:'∫₀', desc:'牛顿-莱布尼茨、换元、奇偶性'},
+  {id:'series',      name:'级数',              glyph:'Σ',  desc:'正项级数、交错级数、收敛性'},
+  {id:'multi',       name:'多元函数微分',      glyph:'∂',  desc:'偏导数、全微分'},
+  {id:'taylor',      name:'泰勒展开',          glyph:'T',  desc:'常见函数的展开式与近似'},
+  {id:'det',         name:'行列式',            glyph:'|A|', desc:'性质、展开定理、克拉默法则'},
+  {id:'matrix',      name:'矩阵',              glyph:'A',  desc:'乘法、逆矩阵、初等变换'},
+  {id:'vector',      name:'向量空间',          glyph:'v',  desc:'线性相关/无关、秩、基'}
+];
+
+const QUESTIONS = [
+  /* —— 极限 —— */
+  {id:'L1', topic:'limit', diff:1, type:'choice', stem:'lim(x→0) sin(3x)/x 等于？',
+   options:['0','1','3','不存在'], answer:2,
+   explain:'用等价无穷小：sin(3x) ~ 3x，所以 sin(3x)/x → 3x/x = 3。',
+   steps:[{k:'考点',v:'等价无穷小替换'},
+          {k:'思路',v:'x→0 时分子分母都趋向 0，属于 0/0 型，可以用等价无穷小把 sin 换成多项式再约。'},
+          {k:'步骤',v:'① 识别 0/0 型不定式　② 由重要极限 sin u ~ u（u→0）得 sin(3x) ~ 3x　③ 代入原式：sin(3x)/x ~ 3x/x = 3　④ 约分得极限 3'},
+          {k:'易错',v:'① 记错公式，把 sin(3x) ~ x 导致答成 1；② 忘记等价替换必须在乘法/除法位置才能用，不能在加减里直接替。'},
+          {k:'同类',v:'下次遇到 x→0 的 0/0 型，先看 sin、tan、1-cos、eˣ-1、ln(1+x) 这些是不是可以换成多项式。'}]},
+  {id:'L2', topic:'limit', diff:1, type:'fill', stem:'填空：lim(x→0) (1-cos x)/x² = ?',
+   answer:'1/2', accept:['1/2','0.5'], explain:'1-cos x ~ x²/2，所以比值 → 1/2。',
+   steps:[{k:'考点',v:'等价无穷小 · 泰勒展开的最低阶'},
+          {k:'思路',v:'1-cos x 不用泰勒也能背出它的等价无穷小是 x²/2，这是 cos 泰勒展开的前两项之差。'},
+          {k:'步骤',v:'① 写成 cos x 的泰勒展开：cos x = 1 - x²/2 + O(x⁴)　② 所以 1 - cos x = x²/2 - O(x⁴) ~ x²/2　③ 代入原式约掉 x²，得结果 1/2'},
+          {k:'易错',v:'① 把 1-cos x 错记成 x²，就会算成 1；② 不知道 cos x 展开的下一项是 x⁴/24，以为 x²/2 之后没东西了。'},
+          {k:'同类',v:'记住常用的：1-cos ~ x²/2，eˣ-1 ~ x，ln(1+x) ~ x，这些都是泰勒展开的第一项。'}]},
+  {id:'L3', topic:'limit', diff:2, type:'choice', stem:'lim(x→∞) (1+1/x)^x 等于？',
+   options:['1','e','e²','∞'], answer:1,
+   explain:'这是第二个重要极限，结果就是 e（约 2.718）。'},
+  {id:'L4', topic:'limit', diff:2, type:'choice', stem:'lim(x→0) tan(x)/x 等于？',
+   options:['0','1','∞','不存在'], answer:1,
+   explain:'tan x ~ x（x→0），等价无穷小替换后比值为 1。'},
+
+  /* —— 导数与微分 —— */
+  {id:'D1', topic:'derivative', diff:1, type:'choice', stem:'y = x³ + 2x 在 x=1 处的导数等于？',
+   options:['3','4','5','6'], answer:2,
+   explain:"y' = 3x² + 2，代入 x=1 得 3+2 = 5。"},
+  {id:'D2', topic:'derivative', diff:1, type:'fill', stem:'填空：y = ln x 在 x=e 处的导数 = ?',
+   answer:'1/e', accept:['1/e','e^-1','1／e'], explain:"y' = 1/x，代入 x=e 得 1/e。"},
+  {id:'D3', topic:'derivative', diff:2, type:'choice', stem:'y = sin(2x) 的导数是？',
+   options:['cos(2x)','2cos(2x)','2sin(2x)','-2cos(2x)'], answer:1,
+   explain:'复合函数求导：外层 cos，内层 2x 的导数 2，所以是 2cos(2x)。',
+   steps:[{k:'考点',v:'复合函数求导（链式法则）'},
+          {k:'思路',v:'sin 里面不是 x 而是 2x，所以不能直接套 (sin x)\'=cos x，必须把内层也乘以它自己的导数。'},
+          {k:'步骤',v:'① 把 sin(2x) 看成外层 u=sin v、内层 v=2x　② 外层对 v 求导：u\'_v = cos v　③ 内层 v 对 x 求导：v\'_x = 2　④ 链式法则：u\'_x = cos(2x) · 2 = 2cos(2x)'},
+          {k:'易错',v:'最常见就是忘记乘 2，答成 cos(2x)。记住：(sin kx)\' = k·cos kx，系数 k 一定会跑出来。'},
+          {k:'同类',v:'只要函数里出现了 x 的系数，求导时这个系数就要翻到外面来一次。比如 (e^{3x})\' = 3e^{3x}。'}]},
+  {id:'D4', topic:'derivative', diff:2, type:'choice', stem:'y = x·e^x 的导数是？',
+   options:['e^x','x·e^x','e^x(x+1)','e^x(x-1)'], answer:2,
+   explain:'乘法法则 (uv)\' = u\'v + uv\'：e^x + x·e^x = e^x(x+1)。'},
+
+  /* —— 中值定理与导数应用 —— */
+  {id:'M1', topic:'mvt', diff:2, type:'choice', stem:'f(x) = x³ - 3x 的极大值点是？',
+   options:['x = -1','x = 1','x = 0','没有极值点'], answer:0,
+   explain:"f' = 3x² - 3 = 3(x-1)(x+1)。x=-1 处导数由正变负 → 极大值点。"},
+  {id:'M2', topic:'mvt', diff:1, type:'fill', stem:'填空：f(x) = x² - 4x + 3 的极小值 = ?',
+   answer:'-1', accept:['-1'], explain:"f' = 2x - 4 = 0 得 x=2，f(2) = 4-8+3 = -1。"},
+  {id:'M3', topic:'mvt', diff:2, type:'choice', stem:'罗尔定理需要的三个条件是？',
+   options:['闭区间连续、开区间可导、端点函数值相等',
+            '闭区间连续、开区间可导、端点导数值相等',
+            '函数单调、连续、可导',
+            '只要闭区间连续即可'], answer:0,
+   explain:'罗尔定理：闭区间[a,b]连续、开区间(a,b)可导、且 f(a)=f(b)。'},
+  {id:'M4', topic:'mvt', diff:3, type:'choice', stem:'f(x) = x² - 1 在 [-1,1] 上满足罗尔定理，结论中的 ξ 等于？',
+   options:['0','1','-1','不存在'], answer:0,
+   explain:"f' = 2x = 0 → x = 0，且 0 在 (-1,1) 内，所以 ξ=0。",
+   steps:[{k:'考点',v:'罗尔定理的应用'},
+          {k:'思路',v:'罗尔定理说的是：如果满足三个条件，那么在开区间里一定有一个点导数为 0。现在题目给了 f(x) 和区间 [-1,1]，直接把它三个条件验证一遍，再解方程 f\'(ξ)=0。'},
+          {k:'步骤',v:'① 验证三个条件：x²-1 在 [-1,1] 闭区间上连续、(-1,1) 上可导、f(-1)=f(1)=0　② 所以罗尔定理适用，存在 ξ∈(-1,1) 使得 f\'(ξ)=0　③ 求导：f\'(x)=2x，令 2x=0 得 x=0　④ 检查 0 ∈ (-1,1)，成立，故 ξ=0'},
+          {k:'易错',v:'① 忘记先验证 f(-1)=f(1) 就直接算 f\'=0；② 解出来的 ξ 不在开区间内（比如端点），那罗尔定理其实就不适用。'},
+          {k:'同类',v:'中值定理的题都是：先验证条件 → 再算导函数 → 解方程 f\'(ξ)=0 → 最后确认 ξ 在开区间内。'}]},
+
+  /* —— 不定积分 —— */
+  {id:'I1', topic:'indefinite', diff:1, type:'choice', stem:'∫ 2x dx 等于？',
+   options:['x² + C','2 + C','x²','2x + C'], answer:0,
+   explain:'x² 求导是 2x，所以原函数是 x²，别忘了 +C。'},
+  {id:'I2', topic:'indefinite', diff:1, type:'fill', stem:'填空：∫ cos x dx = ?（记得写常数 C）',
+   answer:'sinx+C', accept:['sinx+C','sin(x)+C','sinx+c'], explain:'sin x 求导是 cos x，所以是 sin x + C。'},
+  {id:'I3', topic:'indefinite', diff:2, type:'choice', stem:'∫ e^(2x) dx 等于？',
+   options:['e^(2x) + C','2e^(2x) + C','(1/2)e^(2x) + C','e^(2x)/(2x) + C'], answer:2,
+   explain:'凑微分：e^(2x) 求导会多出因子 2，所以要补 1/2。'},
+  {id:'I4', topic:'indefinite', diff:2, type:'choice', stem:'∫ (1/x) dx 等于？',
+   options:['ln|x| + C','1/x² + C','-1/x² + C','x + C'], answer:0,
+   explain:'ln|x| 求导是 1/x，这是必须背下来的基本积分。'},
+
+  /* —— 定积分 —— */
+  {id:'F1', topic:'definite', diff:1, type:'choice', stem:'∫₀¹ x² dx 等于？',
+   options:['1/2','1/3','1','2/3'], answer:1,
+   explain:'原函数 x³/3，代入 0 到 1 得 1/3 - 0 = 1/3。'},
+  {id:'F2', topic:'definite', diff:1, type:'fill', stem:'填空：∫₀^π sin x dx = ?',
+   answer:'2', accept:['2'], explain:'原函数 -cos x，代入得 -cos π + cos 0 = 1 + 1 = 2。'},
+  {id:'F3', topic:'definite', diff:2, type:'choice', stem:'∫₋₁¹ x³ dx 等于？',
+   options:['0','1/2','2/5','1'], answer:0,
+   explain:'x³ 是奇函数，对称区间上定积分为 0。'},
+  {id:'F4', topic:'definite', diff:3, type:'choice', stem:'∫₀^(π/2) cos x dx 等于？',
+   options:['0','1','2','π/2'], answer:1,
+   explain:'原函数 sin x，代入得 sin(π/2) - sin 0 = 1。'},
+
+  /* —— 级数 —— */
+  {id:'S1', topic:'series', diff:2, type:'choice', stem:'Σ(n=1→∞) 1/n² 的收敛情况是？',
+   options:['发散','收敛于 π²/6','收敛于 1','收敛但和未知'], answer:1,
+   explain:'p 级数且 p=2>1 收敛，其和是经典的 π²/6。'},
+  {id:'S2', topic:'series', diff:1, type:'fill', stem:'填空：等比级数 Σ(n=0→∞) (1/2)ⁿ = ?',
+   answer:'2', accept:['2'], explain:'首项 1，公比 1/2，和 = 1/(1-1/2) = 2。'},
+  {id:'S3', topic:'series', diff:2, type:'choice', stem:'Σ(n=1→∞) (-1)ⁿ/n 属于？',
+   options:['绝对收敛','条件收敛','发散','无法判断'], answer:1,
+   explain:'本身收敛（交错级数），但取绝对值后是调和级数发散 → 条件收敛。'},
+  {id:'S4', topic:'series', diff:2, type:'choice', stem:'调和级数 Σ(n=1→∞) 1/n 是？',
+   options:['条件收敛','绝对收敛','发散','收敛于 0'], answer:2,
+   explain:'p 级数 p=1 时是发散的，虽然每一项都在变小。'},
+
+  /* —— 多元函数微分 —— */
+  {id:'V1', topic:'multi', diff:1, type:'choice', stem:'z = x²y，则 ∂z/∂x 等于？',
+   options:['2xy','x²','2x','y'], answer:0,
+   explain:'对 x 求偏导时把 y 当常数：2x·y。'},
+  {id:'V2', topic:'multi', diff:1, type:'fill', stem:'填空：z = x² + y² 在点 (1,1) 处 ∂z/∂y = ?',
+   answer:'2', accept:['2'], explain:'∂z/∂y = 2y，代入 y=1 得 2。'},
+  {id:'V3', topic:'multi', diff:2, type:'choice', stem:'z = x²y 在点 (1,1) 的全微分 dz = ?',
+   options:['2dx + dy','dx + 2dy','2dx + 2dy','dx + dy'], answer:0,
+   explain:'dz = (∂z/∂x)dx + (∂z/∂y)dy = 2xy·dx + x²·dy，在(1,1)是 2dx + dy。'},
+
+  /* —— 泰勒展开 —— */
+  {id:'T1', topic:'taylor', diff:2, type:'choice', stem:'e^x 在 x=0 处的二阶泰勒多项式是？',
+   options:['1 + x','1 + x + x²/2','1 + x + x²','x + x²/2'], answer:1,
+   explain:'e^x = 1 + x + x²/2! + …，二阶就是前三项。'},
+  {id:'T2', topic:'taylor', diff:2, type:'choice', stem:'sin x 在 x=0 处的三阶泰勒多项式是？',
+   options:['x - x³/6','x + x³/6','x - x³/2','x'], answer:0,
+   explain:'sin x = x - x³/3! + …，3! = 6。'},
+  {id:'T3', topic:'taylor', diff:3, type:'fill', stem:'填空：ln(1+x) 二阶泰勒多项式中 x² 的系数 = ?',
+   answer:'-1/2', accept:['-1/2','-0.5'], explain:'ln(1+x) = x - x²/2 + x³/3 - …，所以 x² 系数是 -1/2。'},
+  {id:'T4', topic:'taylor', diff:3, type:'choice', stem:'cos x 在 x=0 处的四阶泰勒多项式是？',
+   options:['1 - x²/2 + x⁴/24','1 + x²/2','1 - x²','1 - x²/2 - x⁴/24'], answer:0,
+   explain:'cos x = 1 - x²/2! + x⁴/4! - …，4! = 24。'},
+
+  /* —— 行列式 —— */
+  {id:'DT1', topic:'det', diff:1, type:'choice', stem:'2 阶行列式 |3 2; 1 4| 等于？',
+   options:['10','12','14','2'], answer:0,
+   explain:'|a b; c d| = ad - bc = 3·4 - 2·1 = 12 - 2 = 10。'},
+  {id:'DT2', topic:'det', diff:2, type:'choice', stem:'3 阶上三角行列式 |1 2 3; 0 4 5; 0 0 6| 等于？',
+   options:['24','10','120','6'], answer:0,
+   explain:'三角行列式等于主对角线元素乘积：1·4·6 = 24。'},
+  {id:'DT3', topic:'det', diff:2, type:'fill', stem:'填空：若 |a b; c d| = 2，则 |2a 2b; 2c 2d| = ?',
+   answer:'8', accept:['8'], explain:'某行(列)提因子 k，行列式变 k 倍。提两次 2 → 2²·2 = 8。'},
+
+  /* —— 矩阵 —— */
+  {id:'M1', topic:'matrix', diff:1, type:'choice', stem:'矩阵 A = [1 2; 3 4]，则 A 的逆矩阵 A⁻¹ 等于？',
+   options:['[-2 1; 1.5 -0.5]','[4 -2; -3 1]','[1 -2; -3 4]','[1 2; 3 4]'], answer:0,
+   explain:'2×2 逆矩阵公式：1/(ad-bc)·[d -b; -c a]。det=-2，故 A⁻¹ = [-2 1; 1.5 -0.5]。',
+   steps:[{k:'考点',v:'二阶矩阵的逆矩阵公式'},
+          {k:'思路',v:'对 2×2 矩阵，直接套公式比用伴随矩阵或高斯消元快得多，记住这个公式就行。'},
+          {k:'步骤',v:'① 写成一般形：A = [a b; c d]，这里 a=1, b=2, c=3, d=4　② 算行列式 det(A) = ad-bc = 4-6 = -2　③ 套用 2×2 逆矩阵公式：A⁻¹ = (1/det(A)) · [d -b; -c a] = (1/-2) · [4 -2; -3 1]　④ 把每个元素乘以 -1/2，得 [-2 1; 1.5 -0.5]'},
+          {k:'易错',v:'① 忘记 1/(ad-bc) 这个因子，导致行列式为负的时候符号全反；② 分不清 [d -b; -c a] 是主对角线交换、副对角线变号，写成 [d b; c a] 就错了。'},
+          {k:'同类',v:'任何 2×2 求逆都先算行列式，det=0 则不可逆。3×3 及以上要改用伴随矩阵或高斯消元。'}]},
+  {id:'M2', topic:'matrix', diff:2, type:'choice', stem:'两个 2×2 矩阵 A、B，下列等式正确的是？',
+   options:['AB = BA', '(AB)^T = A^T B^T', '若 AB = 0 则 A=0 或 B=0', '|AB| = |A||B|'], answer:3,
+   explain:'矩阵乘积的行列式等于行列式的乘积，这是唯一恒成立的。'},
+  {id:'M3', topic:'matrix', diff:2, type:'fill', stem:'填空：矩阵 A = [1 2; 3 4]，则 |A| = ?',
+   answer:'-2', accept:['-2'], explain:'2×2 行列式：1·4 - 2·3 = 4 - 6 = -2。'},
+
+  /* —— 向量空间 —— */
+  {id:'V1', topic:'vector', diff:1, type:'choice', stem:'向量组 α₁,α₂,α₃ 线性无关，则添加一个向量 β 后？',
+   options:['一定仍线性无关','一定线性相关','可能无关也可能相关','必定能由 β 表示'], answer:2,
+   explain:'原组无关，加新向量可能仍无关（若 β 不在它们的张成空间里），也可能相关。'},
+  {id:'V2', topic:'vector', diff:2, type:'choice', stem:'3 阶方阵 A 的秩 r(A) = 2，则方程组 Ax = 0 的基础解系含几个向量？',
+   options:['1','2','3','0'], answer:0,
+   explain:'n - r(A) = 3 - 2 = 1，基础解系含 1 个自由变量对应的解向量。'},
+  {id:'V3', topic:'vector', diff:2, type:'fill', stem:'填空：若 3×4 矩阵 A 的秩为 2，则 Ax=0 的基础解系含 ? 个向量',
+   answer:'2', accept:['2'], explain:'自由变量数 = 列数 - 秩 = 4 - 2 = 2。'}
+];
+
+/* =========================================================
+   二、存档：localStorage
+   说明：浏览器给每个网页一个 5MB 左右的小仓库，刷新也不会丢
+   ========================================================= */
+const DB_KEY = 'chris.fish.v1';
+
+const DEFAULT_DB = {
+  meta:{
+    exp:0,            // 总经验
+    todayDate:'',     // 用来判断"今天"有没有变
+    todayCount:0,
+    todayCorrect:0,
+    streak:0,
+    lastDay:'',
+    // 自动表情状态机需要的新字段
+    lastActiveAt:0,   // 上次交互时间戳（ms）
+    streakCorrect:0,  // 连续答对次数
+    streakWrong:0,    // 连续答错次数
+    goalReachedAt:'', // 今日达成目标的日期字符串（只播报一次）
+    lastLevelUp:0     // 经验跨档只触发一次，存已播报过的等级
+  },
+  answers:[],   // 每条作答记录
+  wrong:[]      // 每条错题快照，每条带 nextReview(下次到期 ms) + reviewCount(已复习次数)
+};
+
+function loadDB(){
+  try{
+    const raw = localStorage.getItem(DB_KEY);
+    if(!raw) return structuredClone(DEFAULT_DB);
+    const db = JSON.parse(raw);
+    // 老数据缺了哪块就补哪块（新增字段也能读到）
+    const meta = {...DEFAULT_DB.meta, ...db.meta};
+    // lastActiveAt 旧数据没有 → 给个 "7 天前" 的值让 idle 逻辑也能走通
+    if(!meta.lastActiveAt) meta.lastActiveAt = Date.now() - 7*86400000;
+    return { meta, answers:db.answers||[], wrong:db.wrong||[] };
+  }catch(e){
+    return structuredClone(DEFAULT_DB);
+  }
+}
+
+function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(DB)); }
+
+let DB = loadDB();
+
+/* =========================================================
+   三、工具函数
+   ========================================================= */
+function todayStr(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// 每次打开先看是不是新的一天，是就把"今日"数据清零（连续对错也归零）
+function rollDaily(){
+  const t = todayStr();
+  if(DB.meta.todayDate !== t){
+    DB.meta.todayDate = t;
+    DB.meta.todayCount = 0;
+    DB.meta.todayCorrect = 0;
+    DB.meta.streakCorrect = 0;
+    DB.meta.streakWrong = 0;
+    saveDB();
+  }
+}
+
+// 填空题答案标准化：去空格、统一大小写、全角转半角
+function normalize(str){
+  return String(str)
+    .replace(/\s+/g,'')
+    .replace(/＋/g,'+')
+    .replace(/／/g,'/')
+    .toLowerCase();
+}
+
+function topicById(id){ return TOPICS.find(t=>t.id===id); }
+function topicName(id){ return topicById(id) ? topicById(id).name : '未知' }
+
+// 某知识点的做题统计
+function masteryOf(topicId){
+  const list = DB.answers.filter(a=>a.topicId===topicId);
+  const correct = list.filter(a=>a.correct).length;
+  return {
+    attempts:list.length,
+    correct,
+    rate: list.length ? correct / list.length : 0,
+    wrongCount: DB.wrong.filter(w=>w.topicId===topicId).length
+  };
+}
+
+function isWeak(topicId){
+  const m = masteryOf(topicId);
+  return m.attempts > 0 && (m.rate < 0.6 || m.wrongCount >= 3);
+}
+
+/* =========================================================
+   三+、Key 与配置管理
+   说明：Key 默认只存在内存（sessionStorage，关页面就没）。
+        勾了"记住"才存 localStorage。这是前端存 Key 最安全的姿势。
+   ========================================================= */
+const KEY_SESSION = 'chris.fish.key';
+const KEY_PERSIST = 'chris.fish.key.persist';
+const CONFIG_KEY  = 'chris.fish.config';
+
+function getKey(){ return sessionStorage.getItem(KEY_SESSION) || localStorage.getItem(KEY_PERSIST) || ''; }
+function setKey(key, remember){
+  sessionStorage.setItem(KEY_SESSION, key);
+  if(remember) localStorage.setItem(KEY_PERSIST, key); else localStorage.removeItem(KEY_PERSIST);
+}
+function clearKey(){ sessionStorage.removeItem(KEY_SESSION); localStorage.removeItem(KEY_PERSIST); }
+
+function loadConfig(){
+  try{ return JSON.parse(localStorage.getItem(CONFIG_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function saveConfig(c){ localStorage.setItem(CONFIG_KEY, JSON.stringify(c)); }
+
+let CONFIG = Object.assign({
+  base:'https://api.deepseek.com',
+  model:'deepseek-chat',
+  visBase:'', visModel:'', visKey:''
+}, loadConfig());
+
+/* =========================================================
+   三++、统一的大模型调用 callLLM
+   说明：出题和问答都走它一个入口，避免在多处重复写 fetch。
+        支持流式（onChunk 回调每收到一段就执行）。
+   ========================================================= */
+async function callLLM({messages, stream=false, onChunk, useVision=false}){
+  const base = (useVision && CONFIG.visBase) ? CONFIG.visBase : CONFIG.base;
+  const model = (useVision && CONFIG.visModel) ? CONFIG.visModel : CONFIG.model;
+  const key = (useVision && CONFIG.visKey) ? CONFIG.visKey : getKey();
+
+  // 没填 Key 且部署在线上 → 走 Netlify 函数，用服务器保管的 Key
+  // （本地 file:// 双击打开时没有服务器，直接退回离线题库）
+  if(!key && !useVision){
+    const canProxy = location.protocol === 'http:' || location.protocol === 'https:';
+    if(canProxy) return callProxy({messages, stream, onChunk, model});
+    throw new Error('还没填 Key，去右上角 ⚙ 设置里填一下，或先用离线题库。');
+  }
+
+  if(!key) throw new Error('还没填 Key，去右上角 ⚙ 设置里填一下，或先用离线题库。');
+
+  const url = base.replace(/\/$/, '') + '/chat/completions';
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body: JSON.stringify({model, messages, stream})
+  });
+  if(!res.ok){
+    const t = await res.text();
+    throw new Error('HTTP ' + res.status + '：' + t.slice(0, 200));
+  }
+
+  if(!stream){
+    const j = await res.json();
+    return j.choices?.[0]?.message?.content || '';
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf='', full='';
+  while(true){
+    const {done, value} = await reader.read();
+    if(done) break;
+    buf += decoder.decode(value, {stream:true});
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    for(const line of lines){
+      if(!line.startsWith('data:')) continue;
+      const data = line.slice(5).trim();
+      if(data === '[DONE]') continue;
+      try{
+        const j = JSON.parse(data);
+        const c = j.choices?.[0]?.delta?.content || '';
+        if(c){ full += c; if(onChunk) onChunk(c, full); }
+      }catch(e){}
+    }
+  }
+  return full;
+}
+
+/* =========================================================
+   三+++、服务器转发 callProxy
+   说明：不填 Key 时走这里，把请求发给同域的 /api/chat（Netlify 函数）。
+        真实 Key 存在服务器环境变量里，前端完全接触不到。
+        服务端不支持真流式，拿到完整结果后用打字机模拟。
+   ========================================================= */
+async function callProxy({messages, stream=false, onChunk, model}){
+  const res = await fetch('/.netlify/functions/chat', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({model, messages, stream:false})
+  });
+
+  if(!res.ok){
+    let msg = await res.text();
+    if(res.status === 429) msg = '今日服务器额度用完了，明天再来，或去设置里填自己的 Key。';
+    if(res.status === 403) msg = '服务器拒绝了请求（来源校验未通过）。';
+    if(res.status === 404) msg = '服务器还没配置转发接口，去设置里填自己的 Key 吧。';
+    if(res.status === 500) msg = '服务器没配置 Key，请联系站长。';
+    throw new Error(String(msg).slice(0, 160));
+  }
+
+  const j = await res.json();
+  const text = j.choices?.[0]?.message?.content || '';
+
+  // 打字机：把完整回答分段吐出来，视觉上和真流式一样
+  if(stream && onChunk && text){
+    for(let i = 0; i < text.length; i += 3){
+      await new Promise(r => setTimeout(r, 12));
+      onChunk(text.slice(i, i + 3), text.slice(0, i + 3));
+    }
+  }
+  return text;
+}
+
+/* =========================================================
+   三+++、薄弱点权重
+   说明：把"你哪个知识点最虚"量化成一个数字，供出题/问答提示词使用。
+   公式：错题总数×2 + 近7天错题×3 + (1-正确率)×2 + 未练过加1
+   ========================================================= */
+function topicWeights(){
+  const out = TOPICS.map(t=>{
+    const m = masteryOf(t.id);
+    const wrong7 = DB.wrong.filter(w=>w.topicId===t.id && Date.now()-w.ts < 7*86400000).length;
+    const weight = 2*m.wrongCount + 3*wrong7 + 2*(m.attempts? 1-m.rate : 0.5) + (m.attempts?0:1);
+    return { id:t.id, name:t.name, weight:Math.round(weight*10)/10, attempts:m.attempts, rate:m.rate, wrongCount:m.wrongCount };
+  });
+  return out.sort((a,b)=>b.weight - a.weight);
+}
+
+function weakSummary(topN=2){
+  const top = topicWeights().filter(w=>w.wrongCount>0 || w.attempts===0).slice(0, topN);
+  if(top.length===0) return '暂无明显薄弱点，可按当前章节继续巩固。';
+  return top.map(w=>{
+    const parts = [`${w.name}(权重${w.weight})`];
+    if(w.wrongCount) parts.push(`错过${w.wrongCount}次`);
+    if(w.attempts) parts.push(`正确率${Math.round(w.rate*100)}%`);
+    else parts.push('还没练过');
+    return parts.join('，');
+  }).join('；') + '。';
+}
+
+/* =========================================================
+   四、出题：从题库里挑一道
+   说明：现在按"最近没答过"优先；下一版这里会换成按错题权重挑
+   ========================================================= */
+let curTopic = null;
+let curDiff = 0;
+let curQ = null;
+let answered = false;
+let pickedIndex = -1;
+
+function pickQuestion(topicId, diff){
+  let pool = QUESTIONS.filter(q=>q.topic===topicId && (diff===0 || q.diff===diff));
+  if(pool.length===0) pool = QUESTIONS.filter(q=>q.topic===topicId);
+
+  // 最近 8 条答过的题先排后面，避免连着出同一道
+  const recent = DB.answers.slice(-8).map(a=>a.qid);
+  const fresh = pool.filter(q=>!recent.includes(q.id));
+  const list = fresh.length ? fresh : pool;
+
+  return list[Math.floor(Math.random()*list.length)] || null;
+}
+
+/* —— AI 出题：调用大模型生成，失败就退回离线题库 —— */
+async function genAIQuestion(topicId, diff){
+  const diffName = ['','基础','进阶','挑战'][diff] || '基础';
+  const prompt = `你是高数出题老师。请针对【${topicName(topicId)}】出一道${diffName}题。
+学生的薄弱情况：${weakSummary(2)}
+要求：严格返回 JSON，不要任何多余文字。字段如下：
+{
+  "type":"choice" 或 "fill",
+  "stem":"题干，不超过60字",
+  "options":["A","B","C","D"],   (仅 choice 需要，必须4个)
+  "answer": 0,                    (choice 为选项索引0-3；fill 为答案字符串)
+  "explain":"30-80字解析，必须包含关键步骤或公式"
+}
+难度${diffName}的题：基础考直接应用，进阶考变形，挑战考综合。`;
+
+  const raw = await callLLM({
+    messages:[{role:'user', content:prompt}],
+    stream:false
+  });
+
+  // 容错：模型有时会在 JSON 外加 ```json 包裹
+  const clean = raw.replace(/```json/gi,'').replace(/```/g,'').trim();
+  let obj;
+  try{ obj = JSON.parse(clean); }
+  catch(e){ throw new Error('模型没返回合法 JSON：' + clean.slice(0,80)); }
+
+  if(obj.type === 'choice'){
+    if(!Array.isArray(obj.options) || obj.options.length!==4) throw new Error('选择题选项数不为 4');
+    if(typeof obj.answer !== 'number' || obj.answer<0 || obj.answer>3) throw new Error('答案索引不合法');
+  }else{
+    obj.type = 'fill';
+    if(typeof obj.answer !== 'string' || !obj.answer) throw new Error('填空题答案为空');
+  }
+  if(!obj.stem || !obj.explain) throw new Error('题干或解析为空');
+
+  // 转成内部统一格式
+  return {
+    id:'AI-'+Date.now(),
+    topic:topicId,
+    diff:diff || 1,
+    type:obj.type,
+    stem:obj.stem,
+    options:obj.options,
+    answer:obj.answer,
+    explain:obj.explain
+  };
+}
+
+// 出题依据：把"为什么出这道题"摊开给用户看
+function buildReason(topicId, fromAI=false){
+  const m = masteryOf(topicId);
+  const wrongTimes = DB.wrong.filter(w=>w.topicId===topicId).length;
+  let base;
+  if(wrongTimes > 0){
+    base = `出题依据：你在「${topicName(topicId)}」错过 ${wrongTimes} 次${m.attempts?`，该点正确率 ${Math.round(m.rate*100)}%`:''}，所以先练它。`;
+  } else if(m.attempts > 0){
+    base = `出题依据：你在这个知识点做了 ${m.attempts} 题，正确率 ${Math.round(m.rate*100)}%，继续巩固。`;
+  } else {
+    base = `出题依据：你还没练过「${topicName(topicId)}」，先从基础题入手。`;
+  }
+  return base + (fromAI ? '（本题由 AI 基于你的薄弱点生成）' : '（离线题库）');
+}
+
+/* —— 统一出题入口：有 Key 走 AI，没 Key / 失败走离线 —— */
+let genLock = false;
+async function doGen(){
+  if(genLock) return;
+  genLock = true;
+  document.getElementById('qcard').innerHTML =
+    '<div class="card empty">Chris 正在根据你的薄弱点出题… <span class="typing"><span></span><span></span><span></span></span></div>';
+
+  try{
+    if(getKey()){
+      curQ = await genAIQuestion(curTopic, curDiff);
+      curQ.__fromAI = true;
+    } else {
+      curQ = pickQuestion(curTopic, curDiff);
+    }
+  }catch(err){
+    flashGlobal('AI 出题失败，改用离线题库：' + err.message);
+    curQ = pickQuestion(curTopic, curDiff);
+  }
+
+  answered = false;
+  pickedIndex = -1;
+  answeredCorrect = false;
+  answeredText = '';
+  genLock = false;
+  renderQuestion();
+}
+
+/* =========================================================
+   四+、Chris 状态机：**数据驱动自动切换**（不允许靠点击切表情）
+   ========================================================= */
+/* 每日目标：答满 8 题即通关 */
+const DAILY_GOAL = 8;
+
+const CHRIS_EXPR = {
+  idle:  'assets/chris_idle.png',
+  happy: 'assets/chris_happy.png',
+  coax:  'assets/chris_coax.png',
+  sad:   'assets/chris_sad.png'
+};
+let curExpr = 'idle';
+let curScene = 'calm';
+let exprTimer = null;     // 表情瞬时切换后到时回到 computeExpr() 的结果
+let bubbleFadeTimer = null;
+let IDLE_TIMER = null;    // 8 分钟没交互 → 强制 coax
+
+/* ---------- 纯决策函数：唯一表情来源，只读 DB.meta ---------- */
+function computeExpr(){
+  const {todayCount, todayCorrect, streakWrong, streakCorrect} = DB.meta;
+  const acc = todayCount ? todayCorrect / todayCount : 0;
+
+  // 今天一道没做 → 撒娇催题（最高优先级）
+  if(todayCount === 0) return 'coax';
+  // 有到期复习 + 刚出错 → 委屈（优先触发"该清错题了"）
+  if(getDueReviews().length > 0 && streakWrong >= 1) return 'sad';
+  // 达成目标：正确率高 → happy；不高 → idle（别太高兴）
+  if(todayCount >= DAILY_GOAL) return acc >= 0.6 ? 'happy' : 'idle';
+  // 连续错题 2 次 → 委屈
+  if(streakWrong >= 2) return 'sad';
+  // 连续答对 3 次 → 开心
+  if(streakCorrect >= 3) return 'happy';
+  // 题量够了但正确率低 → 委屈
+  if(todayCount >= 3 && acc < 0.5) return 'sad';
+  // 做了 60% 以上 → 平静
+  if(todayCount >= DAILY_GOAL * 0.6) return 'idle';
+  // 目标未过半 → 催
+  return 'coax';
+}
+
+/* ---------- 唯一应用入口：给立绘加对应表情 class + 场景 + 台词 + 到时回落 ---------- */
+function applyExpr(expr, holdMs){
+  if(!CHRIS_EXPR[expr]) expr = 'idle';
+  curExpr = expr;
+  // 给立绘换表情 class：先把四种 expr- 开头的 class 都清掉，再加新的
+  const img = document.getElementById('guideFullImg');
+  if(img){
+    img.classList.remove('expr-happy','expr-sad','expr-coax','expr-idle');
+    img.classList.add('expr-' + expr);
+  }
+  setSceneByExpr();
+  // 台词（如果已经有 holdMs 说明是瞬时反馈，用对应状态台词；否则用 computeExpr 的标准台词）
+  typeBubble(chrisLineFor(expr));
+  clearTimeout(exprTimer);
+  if(holdMs){
+    // holdMs 毫秒后回到数据决定的状态
+    exprTimer = setTimeout(()=> updateGuide(), holdMs);
+  }
+}
+
+function setChrisExpr(expr, autoRestore=false){
+  // 保留函数名，但内部只做 applyExpr 的薄封装
+  applyExpr(expr, autoRestore ? 2500 : 0);
+}
+
+function autoChrisExpr(){ return updateGuide(); }
+
+function setScene(name){
+  document.body.classList.remove('scene-calm','scene-happy','scene-alert');
+  document.body.classList.add('scene-' + name);
+  curScene = name;
+}
+function setSceneByExpr(){
+  const map = {happy:'happy', sad:'alert', coax:'alert', idle:'calm'};
+  setScene(map[curExpr] || 'calm');
+}
+
+/* 答题即时反馈（调用点不动，内部改成 applyExpr） */
+function triggerChrisReaction(result){
+  const m = DB.meta;
+  // submitAnswer 已经 ++ 过 todayCount 了，所以"答题前"的计数 = 当前 - 1
+  const prevCount = m.todayCount - 1;
+  if(result === 'win'){
+    m.streakCorrect++; m.streakWrong = 0;
+    // 连击 3 次 → 特判
+    if(m.streakCorrect >= 3){
+      applyExpr('happy', 3000);
+      setTimeout(()=> typeBubble('三连对！主人今天手感爆棚～'), 400);
+    }else{
+      applyExpr('happy', 2200);
+    }
+    // 跨过今日目标（之前 <8 现在 ≥8，且今天还没播报过）
+    if(prevCount < DAILY_GOAL && m.todayCount >= DAILY_GOAL && m.goalReachedAt !== todayStr()){
+      m.goalReachedAt = todayStr();
+      setTimeout(()=>{
+        applyExpr('happy', 4000);
+        setTimeout(()=> typeBubble('今日目标达成！主人太厉害啦～'), 400);
+      }, 500);
+    }
+  }else{
+    m.streakWrong++; m.streakCorrect = 0;
+    if(m.streakWrong >= 2){
+      applyExpr('sad', 3000);
+      setTimeout(()=> typeBubble('呜…连错两道了，我们回头看看解析好不好…'), 400);
+    }else{
+      applyExpr('sad', 2600);
+    }
+  }
+  m.lastActiveAt = Date.now();
+  saveDB();
+}
+
+/* 等级提升触发（在 renderAll 检测跨档时调用） */
+function triggerLevelUp(newLv){
+  setTimeout(()=>{
+    applyExpr('happy', 3500);
+    setTimeout(()=> typeBubble('我升级啦！现在 Lv.' + newLv + '～主人再来一道庆祝一下？'), 400);
+  }, 600);
+}
+
+/* 久未回来触发（rollDaily 之后启动时检查） */
+function triggerLongAbsent(){
+  applyExpr('coax', 0);
+  setTimeout(()=> typeBubble('主人好久没来啦…我都等你好久啦…陪我练一道嘛～'), 400);
+}
+
+/* ---------- 统一入口：根据数据决定表情/台词/场景 ---------- */
+function updateGuide(){
+  applyExpr(computeExpr(), 0);
+}
+
+/* ===== 台词库 ===== */
+const LINES = {
+  coax:[
+    '主人…今天还没开章呢，陪我练一道嘛～',
+    '呜…别去打游戏啦，就一道！就一道好不好～',
+    '我肚子好饿…喂一道题给我吃嘛 🥺',
+    '坐下来嘛，我都等你半小时啦～'
+  ],
+  happy:[
+    '太棒啦！连对好几道！主人好厉害～',
+    '呜哇正确率好高，今天你就是 MVP！',
+    '继续继续，趁手感好！再来一道！',
+    '今天做得好快！给主人发一朵小发发 🌸'
+  ],
+  sad:[
+    '…这题我们再看一眼好吗，我也没太记住…',
+    '呜…主人是不是哪里没搞懂？我再讲一遍？',
+    '别灰心，错题放着明天再来打它！',
+    '这题我也有点懵，我们一起看看解析吧…'
+  ],
+  idle:[
+    '今天要复习的知识点我都列好了，主人看下右栏？',
+    '昨天的错题有到期的，一起清一下吧～',
+    '高数这条路，每天走一小步就行啦。',
+    '主人今天想先练哪个章节？'
+  ]
+};
+
+function chrisLineFor(expr){
+  const pool = LINES[expr] || LINES.idle;
+  if(expr === 'idle' || expr === 'coax'){
+    const reviews = getDueReviews();
+    if(reviews.length > 0){
+      const names = reviews.slice(0,2).map(r=>topicName(r.topicId)).join('、');
+      return (expr==='coax' ? '先陪我练一道，' : '') + '记得今天要复习「' + names + '」哦～';
+    }
+  }
+  return pool[Math.floor(Math.random()*pool.length)];
+}
+
+/* ===== 气泡打字机：逐字显现 + 5 秒后自动淡出 ===== */
+let typingTimer = null;
+function typeBubble(fullText){
+  const box = document.getElementById('guideBubbleText');
+  const bubble = document.getElementById('guideBubble');
+  if(!box || !bubble) return;
+  clearTimeout(typingTimer);
+  clearTimeout(bubbleFadeTimer);
+  box.textContent = '';
+  bubble.classList.add('show');
+  let i = 0;
+  const step = ()=>{
+    if(i >= fullText.length){
+      bubbleFadeTimer = setTimeout(()=> bubble.classList.remove('show'), 5000);
+      return;
+    }
+    box.textContent += fullText[i++];
+    typingTimer = setTimeout(step, 38);
+  };
+  step();
+}
+
+/* ===== 空闲 8 分钟自动撒娇 + 交互立刻回落 ===== */
+function startIdleWatchdog(){
+  // 任何交互都重置 lastActiveAt
+  const reset = ()=>{ DB.meta.lastActiveAt = Date.now(); saveDB(); };
+  ['click','keydown','mousemove','touchstart'].forEach(ev=>{
+    document.addEventListener(ev, reset, {passive:true});
+  });
+  // 每 30 秒查一次（不要每个事件都查，省计算）
+  setInterval(()=>{
+    if(Date.now() - DB.meta.lastActiveAt > 8 * 60 * 1000){
+      // 8 分钟没动 → 撒娇
+      if(curExpr !== 'coax'){
+        clearTimeout(exprTimer);
+        applyExpr('coax');
+        typeBubble('去打了会儿游戏呀？回来陪我练一道嘛～');
+      }
+    }
+  }, 30000);
+}
+
+/* ===== 今日复习清单：到期错题 ===== */
+function getDueReviews(){
+  const now = Date.now();
+  const due = DB.wrong.filter(w=>w.nextReview && w.nextReview <= now);
+  // 同知识点合并
+  const byTopic = {};
+  due.forEach(w=>{
+    byTopic[w.topicId] = (byTopic[w.topicId] || 0) + 1;
+  });
+  return Object.entries(byTopic).map(([topicId, cnt])=>({topicId, count:cnt}));
+}
+function renderReviewList(){
+  const box = document.getElementById('reviewList');
+  if(!box) return;
+  const list = getDueReviews();
+  if(list.length === 0){
+    // 没到期的 → 展示最近错过
+    const recent = DB.wrong.slice(-5);
+    if(recent.length === 0){
+      box.innerHTML = '<div class="empty" style="padding:6px">暂时没有到期的复习项，先去做新题吧～</div>';
+    }else{
+      box.innerHTML = recent.reverse().map(w=>`
+        <div class="review-item">
+          <span class="topic-n">${topicName(w.topicId)}</span>
+          <span class="days-badge warn">最近错过</span>
+        </div>`).join('');
+    }
+    return;
+  }
+  box.innerHTML = list.map(r=>{
+    const daysLate = Math.floor((Date.now() - findFirstNextReview(r.topicId)) / 86400000);
+    const badge = daysLate > 0 ? `逾期 ${daysLate} 天` : '今日到期';
+    const warn = daysLate > 0 ? 'warn' : '';
+    return `<div class="review-item">
+      <span class="topic-n">${topicName(r.topicId)} <span class="reason">· ${r.count} 道待回顾</span></span>
+      <span class="days-badge ${warn}">${badge}</span>
+    </div>`;
+  }).join('');
+}
+function findFirstNextReview(topicId){
+  const t = DB.wrong.filter(w=>w.topicId===topicId && w.nextReview);
+  return t.length ? Math.min(...t.map(w=>w.nextReview)) : Date.now();
+}
+
+/* =========================================================
+   五、渲染
+   说明：每次数据变了就整体重画一遍，逻辑最简单也不容易出错
+   ========================================================= */
+function renderAll(){
+  renderHome();
+  renderTopics();
+  renderQuestion();
+  renderWrong();
+  renderProfile();
+}
+
+/* —— 首页 —— */
+const LEVELS = [
+  {name:'新人', min:0},
+  {name:'学徒', min:80},
+  {name:'熟手', min:200},
+  {name:'高手', min:400},
+  {name:'大师', min:650}
+];
+
+function currentLevel(){
+  let lv = 1;
+  LEVELS.forEach((l,i)=>{ if(DB.meta.exp >= l.min) lv = i+1; });
+  return lv;
+}
+
+function renderHome(){
+  const lv = currentLevel();
+  const name = LEVELS[lv-1].name;
+  document.getElementById('levelTag').textContent = `Lv.${lv} ${name}`;
+
+  const next = LEVELS[lv] || null;
+  const prevMin = LEVELS[lv-1].min;
+  const target = next ? next.min : DEFAULT_DB.meta.exp + 1;
+  const pct = next ? Math.min(100, Math.round((DB.meta.exp - prevMin)/(target - prevMin)*100)) : 100;
+
+  document.getElementById('expFill').style.width = pct + '%';
+  document.getElementById('expText').textContent =
+    next ? `${DB.meta.exp} / ${target}` : `${DB.meta.exp} 满级`;
+
+  document.getElementById('todayCount').textContent = DB.meta.todayCount;
+  document.getElementById('todayAcc').textContent =
+    DB.meta.todayCount ? Math.round(DB.meta.todayCorrect/DB.meta.todayCount*100)+'%' : '—';
+  document.getElementById('wrongCount').textContent = DB.wrong.length;
+  document.getElementById('streakBadge').textContent = `连续 ${DB.meta.streak} 天`;
+
+  // 复习清单
+  renderReviewList();
+
+  // 经验跨档检测（只触发一次，用 lastLevelUp 存已播过的等级）
+  const curLv = (()=>{ let v=1; LEVELS.forEach((l,i)=>{ if(DB.meta.exp >= l.min) v=i+1; }); return v; })();
+  if(curLv > (DB.meta.lastLevelUp || 0)){
+    DB.meta.lastLevelUp = curLv;
+    saveDB();
+    triggerLevelUp(curLv);
+  }
+}
+
+/* —— 知识点列表 —— */
+function renderTopics(){
+  const box = document.getElementById('topicList');
+  box.innerHTML = TOPICS.map(t=>{
+    const m = masteryOf(t.id);
+    const weak = isWeak(t.id);
+    const accText = m.attempts ? `${Math.round(m.rate*100)}%` : '未练';
+    return `
+      <div class="topic ${curTopic===t.id?'active':''}" data-act="pick-topic" data-topic="${t.id}">
+        <span class="glyph">${t.glyph}</span>
+        <span style="flex:1;text-align:left">${t.name}${weak?'<span class="weak">薄弱</span>':''}</span>
+        <span class="acc">${accText}</span>
+      </div>`;
+  }).join('');
+}
+
+/* —— 渲染解析：有 steps 就渲染成带标签的结构化讲解，否则回退到单句 explain —— */
+function renderExplain(q, ok){
+  const borderColor = ok ? 'var(--neon-cyan,#25e8ff)' : '#ff5470';
+  if(q.steps && q.steps.length){
+    const rows = q.steps.map(s=>
+      `<div class="explain-step">
+         <span class="explain-key">${s.k}</span>
+         <span class="explain-val">${escapeHtml(s.v)}</span>
+       </div>`
+    ).join('');
+    return `<div class="explain" style="border-top-color:${borderColor}">${rows}</div>`;
+  }
+  return `<div class="explain" style="border-top-color:${borderColor}">解析：${escapeHtml(q.explain)}</div>`;
+}
+
+/* —— 题目卡 —— */
+function renderQuestion(){
+  const box = document.getElementById('qcard');
+
+  document.getElementById('curTopicName').textContent =
+    curTopic ? topicName(curTopic) : '未选择知识点';
+  document.getElementById('curDiffName').textContent =
+    '难度：' + (['全部','基础','进阶','挑战'][curDiff]);
+
+  if(!curQ){
+    box.innerHTML = '<div class="card empty">左边选个知识点，点「出一道题」开始。<br>（现在是离线题库版，AI 出题下一版接上）</div>';
+    return;
+  }
+
+  const q = curQ;
+  const reason = buildReason(q.topic, q.__fromAI);
+
+  let inputArea = '';
+  if(q.type === 'choice'){
+    inputArea = `<div class="opts">` + q.options.map((op,i)=>{
+      let cls = 'opt';
+      if(answered){
+        cls += ' locked';
+        if(i === q.answer) cls += ' right';
+        else if(i === pickedIndex) cls += ' wrong';
+      }else if(i === pickedIndex){
+        cls += ' picked';
+      }
+      return `<div class="${cls}" data-act="pick-opt" data-index="${i}">
+                <span class="key">${'ABCD'[i]}</span><span>${op}</span>
+              </div>`;
+    }).join('') + `</div>`;
+  }else{
+    const val = answered ? escapeHtml(answeredText) : '';
+    inputArea = `<input class="fill" id="fillInput" placeholder="直接写答案，例如 1/2 或 sinx+C"
+                     value="${val}" ${answered?'disabled':''}>`;
+  }
+
+  let resultArea = '';
+  if(answered){
+    const ok = answeredCorrect;
+    resultArea = `
+      <div class="result ${ok?'ok':'no'}">
+        <b>${ok?'答对了':'答错了'}</b>
+        ${!ok ? `　你的答案：${escapeHtml(answeredText)}　｜　正确答案：${correctText(q)}` : ''}
+        ${renderExplain(q, ok)}
+      </div>
+      <div style="margin-top:14px; display:flex; gap:10px">
+        <button class="btn primary" data-act="next">下一题</button>
+      </div>`;
+  }else{
+    resultArea = `<div style="margin-top:16px">
+        <button class="btn primary" data-act="submit">提交答案</button>
+      </div>`;
+  }
+
+  box.innerHTML = `
+    <div class="card">
+      <div class="qmeta">
+        <span class="chip" id="qTopic" data-id="${q.topic}">${topicName(q.topic)}</span>
+        <span class="chip">${['','基础','进阶','挑战'][q.diff]}</span>
+        <span class="chip">${q.type==='choice'?'选择题':'填空题'}</span>
+      </div>
+      <div class="reason">${reason}</div>
+      <div class="stem">${q.stem}</div>
+      ${inputArea}
+      ${resultArea}
+    </div>`;
+}
+
+function correctText(q){
+  return q.type === 'choice' ? `${'ABCD'[q.answer]}. ${q.options[q.answer]}` : q.answer;
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* —— 错题本 —— */
+function renderWrong(){
+  const box = document.getElementById('wrongList');
+  const hint = document.getElementById('wrongHint');
+
+  if(DB.wrong.length === 0){
+    hint.textContent = '还没有错题。答错一道，它就会自动躺进来。';
+    box.innerHTML = '<div class="empty">空空如也，说明你还没开始练。</div>';
+    return;
+  }
+  hint.textContent = `一共 ${DB.wrong.length} 道，按时间倒序，最近的在上。`;
+
+  box.innerHTML = DB.wrong.slice().reverse().map((w,i)=>{
+    const q = w.q;
+    const d = new Date(w.ts);
+    const time = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    return `
+      <div class="wrong-item">
+        <div class="wrong-meta">
+          <span>${i+1}.</span>
+          <span class="chip">${topicName(w.topicId)}</span>
+          <span class="bad">你的答案：${escapeHtml(w.myAnswer)}</span>
+          <span>${time}</span>
+        </div>
+        <div class="stem">${q.stem}</div>
+        <details class="more">
+          <summary>看答案和解析</summary>
+          <div class="result ok" style="margin-top:10px">
+            <b>正确答案：${correctText(q)}</b>
+            ${renderExplain(q, false)}
+          </div>
+        </details>
+      </div>`;
+  }).join('');
+}
+
+/* —— 画像 —— */
+function renderProfile(){
+  const box = document.getElementById('masteryList');
+  const total = DB.answers.length;
+  const correct = DB.answers.filter(a=>a.correct).length;
+
+  box.innerHTML = `
+    <div class="grid-3" style="margin-bottom:18px">
+      <div class="stat"><b>${total}</b><span>累计答题</span></div>
+      <div class="stat"><b>${total?Math.round(correct/total*100)+'%':'—'}</b><span>累计正确率</span></div>
+      <div class="stat"><b>${DB.meta.streak}</b><span>连续学习天数</span></div>
+    </div>
+    ${TOPICS.map(t=>{
+      const m = masteryOf(t.id);
+      const pct = Math.round(m.rate*100);
+      const color = m.attempts===0 ? '#3a5f6d' : (m.rate<0.6 ? '#ff7f72' : (m.rate<0.8 ? '#ffc25c' : '#59df9f'));
+      return `
+        <div class="mastery-row">
+          <div>${t.name}${isWeak(t.id)?'<span class="weak">薄弱</span>':''}</div>
+          <div class="mbar"><i style="width:${pct}%;background:${color}"></i></div>
+          <div class="mval">${m.attempts ? pct+'%' : '未练'}</div>
+        </div>`;
+    }).join('')}
+  `;
+}
+
+/* =========================================================
+   六、作答与判分
+   ========================================================= */
+let answeredCorrect = false;
+let answeredText = '';
+
+function submitAnswer(){
+  if(!curQ || answered) return;
+
+  const q = curQ;
+  let correct = false;
+  let my = '';
+
+  if(q.type === 'choice'){
+    if(pickedIndex < 0){ flashTip('先选一个选项吧'); return; }
+    my = `${'ABCD'[pickedIndex]}. ${q.options[pickedIndex]}`;
+    correct = (pickedIndex === q.answer);
+  }else{
+    const el = document.getElementById('fillInput');
+    my = (el.value || '').trim();
+    if(!my){ flashTip('先写下你的答案'); return; }
+    const norm = normalize(my);
+    const accepts = [q.answer, ...(q.accept||[])].map(normalize);
+    correct = accepts.includes(norm);
+  }
+
+  answered = true;
+  answeredCorrect = correct;
+  answeredText = my;
+
+  // 记录
+  DB.answers.push({ qid:q.id, topicId:q.topic, correct, ts:Date.now() });
+  DB.meta.todayCount++;
+  if(correct) DB.meta.todayCorrect++;
+  DB.meta.exp += correct ? 10 : 3;   // 答对 10，答错但看了解析 3
+
+  if(!correct){
+    // 第一次错题 → 1 天后到期，之后间隔 3/7/15（复习多少次就加多少天）
+    const reviewInterval = [1,3,7,15];
+    const prevCount = DB.wrong.filter(w=>w.topicId===q.topic).length;
+    const gapDay = reviewInterval[Math.min(prevCount, reviewInterval.length-1)];
+    DB.wrong.push({
+      topicId:q.topic, q, myAnswer:my, ts:Date.now(),
+      nextReview: Date.now() + gapDay*86400000,
+      reviewCount: 0
+    });
+  }
+
+  // 连续天数
+  const t = todayStr();
+  if(DB.meta.lastDay !== t){
+    const last = DB.meta.lastDay ? new Date(DB.meta.lastDay) : null;
+    const now = new Date(t);
+    const diffDay = last ? Math.round((now - last)/(1000*60*60*24)) : 999;
+    DB.meta.streak = diffDay === 1 ? DB.meta.streak + 1 : 1;
+    DB.meta.lastDay = t;
+  }
+
+  saveDB();
+  renderAll();
+  // 触发表情/场景/台词切换
+  triggerChrisReaction(correct ? 'win' : 'lose');
+}
+
+function flashTip(msg){
+  const box = document.getElementById('qcard');
+  const tip = document.createElement('div');
+  tip.textContent = msg;
+  tip.style.cssText = 'margin-top:12px;color:#ffc25c;font-size:13px';
+  box.querySelector('.card').appendChild(tip);
+  setTimeout(()=>tip.remove(), 1600);
+}
+
+/* =========================================================
+   七、交互：事件委托
+   说明：不给每个按钮单独绑事件，而是在 document 上统一监听，
+        按钮只负责声明自己"要干什么"（data-act）
+   ========================================================= */
+document.addEventListener('click', (e)=>{
+  const tabBtn = e.target.closest('.nav button');
+  if(tabBtn){
+    document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+    tabBtn.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.getElementById('tab-' + tabBtn.dataset.tab).classList.add('active');
+    return;
+  }
+
+  const diffBtn = e.target.closest('.diff');
+  if(diffBtn){
+    document.querySelectorAll('.diff').forEach(b=>b.classList.remove('active'));
+    diffBtn.classList.add('active');
+    curDiff = Number(diffBtn.dataset.diff);
+    renderQuestion();
+    return;
+  }
+
+  const el = e.target.closest('[data-act]');
+  if(!el) return;
+  const act = el.dataset.act;
+
+  if(act === 'pick-topic'){
+    curTopic = el.dataset.topic;
+    renderTopics();
+    renderQuestion();
+  }
+
+  if(act === 'gen'){
+    if(!curTopic){ flashGlobal('先在左边选一个知识点'); return; }
+    doGen();
+  }
+
+  if(act === 'quick'){
+    document.querySelector('.nav button[data-tab="practice"]').click();
+    if(!curTopic) curTopic = weakTopicOrFirst();
+    renderTopics();
+    doGen();
+  }
+
+  if(act === 'go-wrong'){
+    document.querySelector('.nav button[data-tab="wrong"]').click();
+  }
+
+  if(act === 'pick-opt'){
+    if(answered) return;
+    pickedIndex = Number(el.dataset.index);
+    renderQuestion();
+  }
+
+  if(act === 'submit'){
+    submitAnswer();
+  }
+
+  if(act === 'next'){
+    curQ = pickQuestion(curTopic, curDiff);
+    answered = false;
+    pickedIndex = -1;
+    answeredCorrect = false;
+    answeredText = '';
+    renderQuestion();
+  }
+
+  if(act === 'open-settings'){ openSettings(); }
+  if(act === 'close-settings'){ document.getElementById('settingsModal').hidden = true; }
+  if(act === 'save-settings'){ saveSettings(); }
+  if(act === 'clear-key'){
+    clearKey();
+    document.getElementById('cfgKey').value = '';
+    flashGlobal('Key 已清除');
+  }
+  if(act === 'test-conn'){ testConn(); }
+});
+
+/* =========================================================
+   设置弹窗逻辑
+   ========================================================= */
+function openSettings(){
+  document.getElementById('cfgBase').value = CONFIG.base;
+  document.getElementById('cfgModel').value = CONFIG.model;
+  document.getElementById('cfgVisBase').value = CONFIG.visBase || '';
+  document.getElementById('cfgVisModel').value = CONFIG.visModel || '';
+  document.getElementById('cfgVisKey').value = CONFIG.visKey || '';
+  document.getElementById('cfgKey').value = getKey();
+  document.getElementById('cfgRemember').checked = !!localStorage.getItem(KEY_PERSIST);
+  document.getElementById('connStatus').textContent = '';
+  document.getElementById('connStatus').className = 'conn-status';
+  document.getElementById('settingsModal').hidden = false;
+}
+
+function saveSettings(){
+  CONFIG.base = document.getElementById('cfgBase').value.trim() || 'https://api.deepseek.com';
+  CONFIG.model = document.getElementById('cfgModel').value.trim() || 'deepseek-chat';
+  CONFIG.visBase = document.getElementById('cfgVisBase').value.trim();
+  CONFIG.visModel = document.getElementById('cfgVisModel').value.trim();
+  CONFIG.visKey = document.getElementById('cfgVisKey').value.trim();
+  const key = document.getElementById('cfgKey').value.trim();
+  const remember = document.getElementById('cfgRemember').checked;
+  if(key) setKey(key, remember); else clearKey();
+  saveConfig({base:CONFIG.base, model:CONFIG.model, visBase:CONFIG.visBase, visModel:CONFIG.visModel, visKey:CONFIG.visKey});
+  document.getElementById('settingsModal').hidden = true;
+  flashGlobal('设置已保存' + (key ? '' : '（未填 Key：线上走服务器，本地用题库）'));
+}
+
+async function testConn(){
+  const st = document.getElementById('connStatus');
+  st.className = 'conn-status';
+  st.textContent = '测试中…';
+  try{
+    const txt = await callLLM({
+      messages:[{role:'user', content:'只回复两个字：你好'}],
+      stream:false
+    });
+    st.textContent = '✓ 连通成功，模型回复：' + txt.slice(0, 20);
+    st.classList.add('ok');
+  }catch(e){
+    st.textContent = '✗ ' + e.message;
+    st.classList.add('bad');
+  }
+}
+
+/* =========================================================
+   问答聊天逻辑
+   说明：单入口 sendChat()，构造消息 → 调 callLLM → 流式渲染。
+        图片走视觉模型；回答完抽知识点，给一个"练一题"按钮。
+   ========================================================= */
+let chatPendingImg = null;   // {dataUrl, name}
+
+document.getElementById('chatImg').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{
+    // 压缩：画到 canvas 最长边 1000px，减小 token 消耗
+    const img = new Image();
+    img.onload = ()=>{
+      const max = 1000;
+      let {width, height} = img;
+      if(width>max || height>max){
+        const r = Math.min(max/width, max/height);
+        width = Math.round(width*r); height = Math.round(height*r);
+      }
+      const cv = document.createElement('canvas');
+      cv.width = width; cv.height = height;
+      cv.getContext('2d').drawImage(img, 0, 0, width, height);
+      chatPendingImg = { dataUrl: cv.toDataURL('image/jpeg', 0.85), name:file.name };
+      const pv = document.getElementById('chatImgPreview');
+      pv.innerHTML = `<img src="${chatPendingImg.dataUrl}"><button class="btn ghost" data-act="clear-img" style="padding:4px 10px;font-size:12px">移除</button>`;
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.addEventListener('click', (e)=>{
+  if(e.target.closest('[data-act="clear-img"]')){
+    chatPendingImg = null;
+    document.getElementById('chatImgPreview').innerHTML = '';
+    document.getElementById('chatImg').value = '';
+  }
+});
+
+document.getElementById('chatSend').addEventListener('click', sendChat);
+document.getElementById('chatInput').addEventListener('keydown', (e)=>{
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendChat(); }
+});
+
+async function sendChat(){
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text && !chatPendingImg) return;
+
+  const box = document.getElementById('chatMessages');
+
+  // 1. 把用户消息画上去
+  const userMsg = document.createElement('div');
+  userMsg.className = 'msg user';
+  userMsg.textContent = text || '[图片]';
+  box.appendChild(userMsg);
+  if(chatPendingImg){
+    const uimg = document.createElement('img');
+    uimg.src = chatPendingImg.dataUrl;
+    uimg.style.cssText = 'max-height:160px;border-radius:10px;margin-top:8px;border:1px solid var(--line)';
+    userMsg.appendChild(uimg);
+  }
+
+  // 2. Chris 的占位气泡（流式往里塞字）
+  const fishMsg = document.createElement('div');
+  fishMsg.className = 'msg fish';
+  fishMsg.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+  box.appendChild(fishMsg);
+  box.scrollTop = box.scrollHeight;
+
+  input.value = '';
+  const img = chatPendingImg;
+  chatPendingImg = null;
+  document.getElementById('chatImgPreview').innerHTML = '';
+  document.getElementById('chatImg').value = '';
+
+  // 3. 构造 messages
+  const useVision = !!img && CONFIG.visBase;
+  const sysPrompt = `你是 Chris，一条呆萌的大肥鱼，高数学习搭子。语气软萌、像在陪朋友学习，但数学解释必须准确。
+当前学生的薄弱点：${weakSummary(2)}
+回答控制在 300 字内，分点讲清楚，别堆术语。最后用一句软萌的话结尾。`;
+
+  let content;
+  if(useVision){
+    content = [{type:'text', text:text || '请看这张图里的题目，帮我讲讲怎么做。'}];
+    if(img) content.push({type:'image_url', image_url:{url:img.dataUrl}});
+  }else{
+    if(img && !CONFIG.visBase){
+      // 没视觉模型：把图片忽略，提示用户
+      const warn = document.createElement('div');
+      warn.className = 'msg system';
+      warn.textContent = '未配置视觉模型，图片暂无法识别。可在 ⚙ 设置里填视觉模型，或直接把题目打出来。';
+      box.appendChild(warn);
+    }
+    content = text;
+  }
+
+  let full = '';
+  try{
+    await callLLM({
+      messages:[
+        {role:'system', content:sysPrompt},
+        {role:'user', content}
+      ],
+      stream:true,
+      useVision,
+      onChunk:(c)=>{
+        full += c;
+        fishMsg.textContent = full;
+        box.scrollTop = box.scrollHeight;
+      }
+    });
+  }catch(err){
+    fishMsg.textContent = '（哎呀出错了：' + err.message + '）';
+  }
+
+  // 4. 回答完：让 AI 抽知识点，给"练一题"入口
+  try{
+    const topicGuess = await callLLM({
+      messages:[{role:'user', content:`根据下面这段问答，判断它最接近哪个知识点，只返回编号：极限=1,导数=2,中值定理=3,不定积分=4,定积分=5,级数=6,多元函数=7,泰勒=8。只返回一个数字。\n\n学生问：${text}\n回答：${full.slice(0,300)}`}],
+      stream:false
+    });
+    const m = topicGuess.match(/[1-8]/);
+    if(m){
+      const map = ['limit','derivative','mvt','indefinite','definite','series','multi','taylor'];
+      const guessId = map[Number(m[0])-1];
+      const tip = document.createElement('div');
+      tip.className = 'msg system';
+      tip.innerHTML = `这道题看起来是「${topicName(guessId)}」的内容。<button class="btn primary" data-act="chat-practice" data-topic="${guessId}" style="margin-left:10px;padding:6px 14px;font-size:12px">去练一道同知识点的题</button>`;
+      box.appendChild(tip);
+      box.scrollTop = box.scrollHeight;
+    }
+  }catch(e){}
+}
+
+// 聊天里点"练一题"
+document.addEventListener('click', (e)=>{
+  const btn = e.target.closest('[data-act="chat-practice"]');
+  if(!btn) return;
+  curTopic = btn.dataset.topic;
+  document.querySelector('.nav button[data-tab="practice"]').click();
+  renderTopics();
+  doGen();
+});
+
+function weakTopicOrFirst(){
+  const weak = TOPICS.map(t=>t.id).find(isWeak);
+  return weak || (DB.wrong.length ? DB.wrong[DB.wrong.length-1].topicId : TOPICS[0].id);
+}
+
+function flashGlobal(msg){
+  const tip = document.createElement('div');
+  tip.textContent = msg;
+  tip.style.cssText = 'position:fixed;left:50%;top:78px;transform:translateX(-50%);z-index:30;'+
+    'background:rgba(255,194,92,.16);border:1px solid rgba(255,194,92,.5);color:#ffc25c;'+
+    'padding:9px 16px;border-radius:10px;font-size:13px';
+  document.body.appendChild(tip);
+  setTimeout(()=>tip.remove(), 1800);
+}
+
+/* =========================================================
+   八、启动
+   ========================================================= */
+rollDaily();
+
+/* 久未回来（>1 天没打开）→ 强制撒娇台词 */
+if(Date.now() - DB.meta.lastActiveAt > 86400000){
+  // 不立即说话，等 updateGuide 后补一句更能打动人
+  setTimeout(()=> triggerLongAbsent(), 500);
+}
+DB.meta.lastActiveAt = Date.now();
+saveDB();
+
+/* 首次根据今日数据自动决定表情/场景/台词 */
+updateGuide();
+renderAll();
+
+/* ========== 引导员拖拽 + 点击只重复当前台词（绝不主动切表情） ========== */
+(function initGuide(){
+  const guide = document.getElementById('guide');
+  const body  = document.getElementById('guideBody');
+  if(!guide || !body) return;
+  let dragging=false, dx=0, dy=0, startX=0, startY=0, moved=false;
+
+  // 拖拽目标是立绘 body（不是小头像）
+  body.addEventListener('mousedown',(ev)=>{
+    dragging=true; moved=false;
+    guide.classList.add('is-dragging');
+    const r = guide.getBoundingClientRect();
+    dx = ev.clientX - r.left; dy = ev.clientY - r.top;
+    startX = ev.clientX; startY = ev.clientY;
+    ev.preventDefault();
+  });
+  window.addEventListener('mousemove',(ev)=>{
+    if(!dragging) return;
+    const dx_move = ev.clientX - startX;
+    const dy_move = ev.clientY - startY;
+    if(Math.abs(dx_move)>5 || Math.abs(dy_move)>5) moved=true;
+    const w = guide.offsetWidth, h = guide.offsetHeight;
+    const x = Math.max(4, Math.min(window.innerWidth - w - 4, ev.clientX - dx));
+    const y = Math.max(4, Math.min(window.innerHeight - h - 4, ev.clientY - dy));
+    guide.style.right = 'auto'; guide.style.bottom = 'auto';
+    guide.style.left = x+'px'; guide.style.top = y+'px';
+  });
+  window.addEventListener('mouseup',()=>{
+    if(!dragging) return;
+    dragging=false; guide.classList.remove('is-dragging');
+    // 没拖动就当点击 → 让她再说一句话（绝不切表情）
+    if(!moved){
+      clearTimeout(exprTimer);
+      typeBubble(chrisLineFor(curExpr));
+    }
+  });
+})();
+
+/* ========== Canvas 2D 极简 3D：赛博城背景（约 120 行原生 JS） ========== */
+(function initScene(){
+  const canvas = document.getElementById('scene');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if(!ctx){ canvas.remove(); return; }  // 兜底：没 2D 上下文就不画
+
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const colors = ['#25e8ff','#ff2fa6','#ffb020','#7cff5e'];
+  const isMobile = () => window.innerWidth <= 860;
+
+  // ---------- 相机 & 投影 ----------
+  const state = {
+    W:0, H:0, DPR:1,
+    camY:7, camZ:30, targetZ:30,
+    scrollPct:0, t:0, lastTime:0, fps:60,
+    // 楼群
+    buildings:[],
+    particles:[]
+  };
+
+  // ---------- 生成场景 ----------
+  function genScene(){
+    state.buildings = [];
+    state.particles = [];
+    const bCount = isMobile() ? 40 : 80;
+    for(let i=0;i<bCount;i++){
+      const sign = Math.random()<.5 ? -1 : 1;
+      state.buildings.push({
+        x: sign * (12 + Math.random()*46),   // ±(12~58)
+        z: -Math.random()*900,              // 0~-900
+        w: 3 + Math.random()*7,             // 宽 3~10
+        d: 3 + Math.random()*7,             // 深 3~10
+        h: 6 + Math.random()*34,            // 高 6~40
+        c: colors[Math.floor(Math.random()*colors.length)]
+      });
+    }
+    const pCount = isMobile() ? 250 : 600;
+    for(let i=0;i<pCount;i++){
+      state.particles.push({
+        x: (Math.random()-.5)*200,
+        y: Math.random()*50,
+        z: -Math.random()*900
+      });
+    }
+  }
+
+  // ---------- 单帧绘制 ----------
+  function resize(){
+    state.DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+    state.W = window.innerWidth;
+    state.H = window.innerHeight;
+    canvas.width = state.W * state.DPR;
+    canvas.height = state.H * state.DPR;
+    canvas.style.width = state.W + 'px';
+    canvas.style.height = state.H + 'px';
+    ctx.setTransform(state.DPR, 0, 0, state.DPR, 0, 0);
+    genScene();
+  }
+
+  // 投影：z 是相对相机的距离
+  function project(x, y, z){
+    const f = 0.9 * state.H;
+    const dz = z - state.camZ;
+    if(dz <= 0.5) return null;
+    const sx = state.W/2 + x * f / dz;
+    const sy = state.H/2 - (y - state.camY) * f / dz;
+    return {sx, sy, scale: 1 / dz};
+  }
+
+  function drawScene(){
+    const {W, H} = state;
+    // 清屏（全透明，让星云层叠上来）
+    ctx.clearRect(0, 0, W, H);
+
+    // 相机阻尼：target 30 - scrollPct * 900
+    state.targetZ = 30 - state.scrollPct * 900;
+    state.camZ += (state.targetZ - state.camZ) * 0.08;
+    state.t += 0.016;
+
+    // ---- 地面网格：每 30 单位一条横线 + 左右 7 条纵线 ----
+    ctx.save();
+    ctx.lineWidth = 1;
+    // 横线（沿 Z 轴）
+    for(let z=0; z>=-900; z-=30){
+      const near = project(-100, 0, z);
+      const far  = project(100, 0, z);
+      if(!near || !far) continue;
+      const alpha = Math.max(0, 1 - Math.abs(z - state.camZ)/400) * 0.22;
+      ctx.strokeStyle = `rgba(37,232,255,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(near.sx, near.sy);
+      ctx.lineTo(far.sx, far.sy);
+      ctx.stroke();
+    }
+    // 纵线（沿 X 轴，每 30 单位一条，左右各 7 条）
+    for(let x=-210; x<=210; x+=30){
+      const near = project(x, 0, 0);
+      const far  = project(x, 0, -900);
+      if(!near || !far) continue;
+      const alpha = Math.max(0, 1 - Math.abs(0 - state.camZ)/300) * 0.18;
+      ctx.strokeStyle = `rgba(255,47,166,${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(near.sx, near.sy);
+      ctx.lineTo(far.sx, far.sy);
+      ctx.stroke();
+    }
+    // 扫描亮带：沿 Z 轴推进
+    const sweepZ = ((state.t * 40) % 900) - 900;
+    for(let z=sweepZ-6; z<=sweepZ+6; z+=1){
+      if(z > 0) continue;
+      const near = project(-100, 0, z);
+      const far  = project(100, 0, z);
+      if(!near || !far) continue;
+      const alpha = Math.max(0, 1 - Math.abs(z - state.camZ)/300) * 0.5;
+      ctx.strokeStyle = `rgba(37,232,255,${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(near.sx, near.sy);
+      ctx.lineTo(far.sx, far.sy);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // ---- 楼群：按深度排序（远的先画）----
+    const sorted = state.buildings.slice().sort((a,b)=> b.z - a.z);
+    ctx.lineWidth = 1.2;
+    for(const b of sorted){
+      // 楼底面 4 点
+      const p0 = project(b.x,     0, b.z);           // 底后左
+      const p1 = project(b.x + b.w, 0, b.z);        // 底后右
+      const p2 = project(b.x + b.w, 0, b.z - b.d);   // 底前右
+      const p3 = project(b.x,     0, b.z - b.d);     // 底前左
+      // 楼顶面 4 点
+      const t0 = project(b.x,     b.h, b.z);
+      const t1 = project(b.x + b.w, b.h, b.z);
+      const t2 = project(b.x + b.w, b.h, b.z - b.d);
+      const t3 = project(b.x,     b.h, b.z - b.d);
+      if(!p0||!p1||!p2||!p3||!t0||!t1||!t2||!t3) continue;
+
+      const dist = Math.abs(b.z - state.camZ);
+      const alpha = Math.max(0, 1 - dist/150) * 0.75;
+      if(alpha <= 0.01) continue;
+
+      ctx.strokeStyle = b.c;
+      ctx.globalAlpha = alpha;
+
+      // 8 竖 + 4 底 + 4 顶 = 16 条棱（但底面在地面下省略，画 12 条）
+      // 竖棱 4 条
+      ctx.beginPath();
+      ctx.moveTo(p0.sx,p0.sy); ctx.lineTo(t0.sx,t0.sy);
+      ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(t1.sx,t1.sy);
+      ctx.moveTo(p2.sx,p2.sy); ctx.lineTo(t2.sx,t2.sy);
+      ctx.moveTo(p3.sx,p3.sy); ctx.lineTo(t3.sx,t3.sy);
+      // 底棱 4 条
+      ctx.moveTo(p0.sx,p0.sy); ctx.lineTo(p1.sx,p1.sy);
+      ctx.moveTo(p1.sx,p1.sy); ctx.lineTo(p2.sx,p2.sy);
+      ctx.moveTo(p2.sx,p2.sy); ctx.lineTo(p3.sx,p3.sy);
+      ctx.moveTo(p3.sx,p3.sy); ctx.lineTo(p0.sx,p0.sy);
+      // 顶棱 4 条
+      ctx.moveTo(t0.sx,t0.sy); ctx.lineTo(t1.sx,t1.sy);
+      ctx.moveTo(t1.sx,t1.sy); ctx.lineTo(t2.sx,t2.sy);
+      ctx.moveTo(t2.sx,t2.sy); ctx.lineTo(t3.sx,t3.sy);
+      ctx.moveTo(t3.sx,t3.sy); ctx.lineTo(t0.sx,t0.sy);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // ---- 粒子：按深度排序，越远越小越淡 ----
+    const ps = state.particles.slice().sort((a,b)=> b.z - a.z);
+    for(const p of ps){
+      // y 缓慢上浮，越界回绕
+      p.y += 0.02;
+      if(p.y > 50){ p.y = 0; p.x = (Math.random()-.5)*200; p.z = -Math.random()*900; }
+      const pp = project(p.x, p.y, p.z);
+      if(!pp) continue;
+      const dist = Math.abs(p.z - state.camZ);
+      const alpha = Math.max(0, 1 - dist/300) * 0.6;
+      if(alpha <= 0.02) continue;
+      ctx.fillStyle = `rgba(200,230,255,${alpha})`;
+      ctx.beginPath();
+      ctx.arc(pp.sx, pp.sy, Math.max(0.5, 2*pp.scale), 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // ---------- rAF 主循环 + FPS ----------
+  let lastFpsCalc = performance.now(), frames = 0;
+  function loop(now){
+    frames++;
+    if(now - lastFpsCalc >= 500){
+      state.fps = Math.round(frames * 1000 / (now - lastFpsCalc));
+      frames = 0; lastFpsCalc = now;
+    }
+    drawScene();
+    if(!reduceMotion) requestAnimationFrame(loop);
+  }
+  // reduce-motion 用户只画一帧
+  if(reduceMotion){ resize(); drawScene(); }
+  else{
+    resize();
+    requestAnimationFrame(loop);
+    window.addEventListener('resize', resize);
+    document.addEventListener('visibilitychange', ()=>{
+      if(!document.hidden) requestAnimationFrame(loop);
+    });
+  }
+
+  // ---------- 滚动驱动 progress + Hero 视差 ----------
+  let ticking = false;
+  const onScroll = ()=>{
+    if(ticking) return;
+    ticking = true;
+    requestAnimationFrame(()=>{
+      ticking = false;
+      const docH = document.documentElement.scrollHeight - window.innerHeight;
+      state.scrollPct = docH > 0 ? window.scrollY / docH : 0;
+      const bar = document.getElementById('scrollBar');
+      if(bar) bar.style.width = (state.scrollPct * 100) + '%';
+      // Hero 视差：滚动时整体上移 + 淡出（只作用首页 hero-card）
+      const hero = document.querySelector('.hero-card');
+      if(hero){
+        const p = Math.min(state.scrollPct * 3, 1);  // 滚到 1/3 就完全淡出
+        hero.style.transform = `translateY(${-p * 40}px)`;
+        hero.style.opacity = String(1 - p);
+      }
+    });
+  };
+  window.addEventListener('scroll', onScroll, {passive:true});
+
+  // ---------- 暴露给外部：FPS 读取 ----------
+  window.__getSceneFps = () => state.fps;
+})();
+
+/* ========== HUD 竖排 & 遥测面板联动 ========== */
+(function bindHud(){
+  // HUD rail 与顶部 nav 同步
+  const rail = document.getElementById('hudRail');
+  const topNav = document.querySelector('.nav');
+  const tabs = document.querySelectorAll('[data-tab]');
+  function switchTab(tabId){
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    const panel = document.getElementById('tab-' + tabId);
+    if(panel) panel.classList.add('active');
+    tabs.forEach(b=>b.classList.toggle('active', b.dataset.tab === tabId));
+    if(topNav) topNav.querySelectorAll('button').forEach(b=>b.classList.toggle('active', b.dataset.tab === tabId));
+    if(rail) rail.querySelectorAll('.hud-item').forEach(i=>i.classList.toggle('active', i.dataset.tab === tabId));
+    window.scrollTo({top:0, behavior:'instant'});
+    // 切到错题本/画像页时 Chris 自动判断
+    if(tabId === 'wrong'){
+      setTimeout(()=>{ applyExpr(DB.wrong.length > 0 ? 'sad' : 'idle'); }, 150);
+    }else if(tabId === 'profile'){
+      const t = DB.meta; const acc = t.todayCount ? t.todayCorrect/t.todayCount : 0;
+      setTimeout(()=>{ applyExpr(acc >= 0.7 ? 'happy' : 'idle'); }, 150);
+    }else{
+      updateGuide();
+    }
+  }
+  tabs.forEach(b=>b.addEventListener('click', ()=> switchTab(b.dataset.tab)));
+  if(rail) rail.querySelectorAll('.hud-item').forEach(i=>i.addEventListener('click', ()=> switchTab(i.dataset.tab)));
+
+  // 遥测面板每 500ms 更一次（不每帧写 DOM）
+  const fpsEl = document.getElementById('telFps');
+  const todayEl = document.getElementById('telToday');
+  const accEl = document.getElementById('telAcc');
+  const chapEl = document.getElementById('telChap');
+  if(fpsEl){
+    setInterval(()=>{
+      const m = DB.meta;
+      const acc = m.todayCount ? Math.round(m.todayCorrect/m.todayCount*100) : null;
+      fpsEl.textContent = window.__getSceneFps ? window.__getSceneFps() : 60;
+      todayEl.textContent = m.todayCount;
+      accEl.textContent = acc !== null ? acc + '%' : '--';
+      chapEl.textContent = currentTopicName() || '--';
+    }, 500);
+  }
+
+  // 卡片进场动画
+  if('IntersectionObserver' in window){
+    const obs = new IntersectionObserver((entries)=>{
+      entries.forEach(e=>{
+        if(e.isIntersecting){
+          const el = e.target;
+          const delay = parseInt(el.dataset.delay || '0', 10);
+          setTimeout(()=> el.classList.add('in'), delay);
+          obs.unobserve(el);
+        }
+      });
+    }, {threshold:0.15});
+    document.querySelectorAll('.reveal').forEach(el=> obs.observe(el));
+  }
+})();
+startIdleWatchdog();
+
+/* 工具：遥测面板显示当前章节名 */
+function currentTopicName(){
+  // 从页面上找当前渲染的题目 topicId
+  const q = document.getElementById('qTopic');
+  if(q && q.dataset.id) return topicName(q.dataset.id);
+  return null;
+}
+</script>
+</body>
+</html>
