@@ -1070,9 +1070,10 @@ async function callLLM({messages, stream=false, onChunk, useVision=false}){
 
   // 没填 Key 且部署在线上 → 走 Netlify 函数，用服务器保管的 Key
   // （本地 file:// 双击打开时没有服务器，直接退回离线题库）
-  if(!key && !useVision){
+  // 注意：视觉 Key 也走同一个代理，服务器端按 messages 里有没有 image_url 决定用哪个 Key。
+  if(!key){
     const canProxy = location.protocol === 'http:' || location.protocol === 'https:';
-    if(canProxy) return callProxy({messages, stream, onChunk, model});
+    if(canProxy) return callProxy({messages, stream, onChunk, model, useVision});
     throw new Error('还没填 Key，去右上角 ⚙ 设置里填一下，或先用离线题库。');
   }
 
@@ -1123,20 +1124,20 @@ async function callLLM({messages, stream=false, onChunk, useVision=false}){
         真实 Key 存在服务器环境变量里，前端完全接触不到。
         服务端不支持真流式，拿到完整结果后用打字机模拟。
    ========================================================= */
-async function callProxy({messages, stream=false, onChunk, model}){
+async function callProxy({messages, stream=false, onChunk, model, useVision=false}){
   const res = await fetch('/.netlify/functions/chat', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({model, messages, stream:false})
+    body: JSON.stringify({model, messages, stream:false, useVision})
   });
 
   if(!res.ok){
     let msg = await res.text();
-    if(res.status === 429) msg = '今日服务器额度用完了，明天再来，或去设置里填自己的 Key。';
+    if(res.status === 429) msg = '额度用完了：' + msg;   // 后端会区分"视觉 10 次/天"和"文字 200 次/天"
     if(res.status === 403) msg = '服务器拒绝了请求（来源校验未通过）。';
     if(res.status === 404) msg = '服务器还没配置转发接口，去设置里填自己的 Key 吧。';
     if(res.status === 500) msg = '服务器没配置 Key，请联系站长。';
-    throw new Error(String(msg).slice(0, 160));
+    throw new Error(String(msg).slice(0, 200));
   }
 
   const j = await res.json();
