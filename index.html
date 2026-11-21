@@ -1369,20 +1369,27 @@ function friendlyHTTPError(status, body){
 }
 
 async function callLLM({messages, stream=false, onChunk, useVision=false}){
-  const base = (useVision && CONFIG.visBase) ? CONFIG.visBase : CONFIG.base;
-  const model = (useVision && CONFIG.visModel) ? CONFIG.visModel : CONFIG.model;
-  const key = (useVision && CONFIG.visKey) ? CONFIG.visKey : getKey();
+  // 视觉必须 Base + 模型名 + Key 三个都填齐，才允许本地直连。
+  // 缺任何一个都绝不能用文字模型的地址/Key 去发图片，否则必然 400 / 401。
+  const localVision = useVision && !!CONFIG.visBase && !!CONFIG.visModel && !!CONFIG.visKey;
+  const base  = localVision ? CONFIG.visBase  : CONFIG.base;
+  const model = localVision ? CONFIG.visModel : CONFIG.model;
+  const key   = localVision ? CONFIG.visKey   : getKey();
+
+  const canProxy = location.protocol === 'http:' || location.protocol === 'https:';
+
+  // 带图片但本地视觉没配齐：线上强制走服务器代理；本地直接说明原因
+  if(useVision && !localVision){
+    if(canProxy) return callProxy({messages, stream, onChunk, model, useVision});
+    throw new Error('本地没配好视觉模型：Base、模型名、Key 三项都要填；或者把题目直接打出来问我。');
+  }
 
   // 没填 Key 且部署在线上 → 走 Netlify 函数，用服务器保管的 Key
-   // （本地 file:// 双击打开时没有服务器，直接退回离线题库）
-  // 注意：视觉 Key 也走同一个代理，服务器端按 messages 里有没有 image_url 决定用哪个 Key。
+  // （本地 file:// 双击打开时没有服务器，直接退回离线题库）
   if(!key){
-    const canProxy = location.protocol === 'http:' || location.protocol === 'https:';
     if(canProxy) return callProxy({messages, stream, onChunk, model, useVision});
     throw new Error('还没填 Key，去右上角 ⚙ 设置里填一下，或先用离线题库。');
   }
-
-  if(!key) throw new Error('还没填 Key，去右上角 ⚙ 设置里填一下，或先用离线题库。');
 
   const url = base.replace(/\/$/, '') + '/chat/completions';
   let res;
@@ -1451,6 +1458,11 @@ async function callProxy({messages, stream=false, onChunk, model, useVision=fals
     // 429 后端会区分"视觉 10 次/天"和"文字 200 次/天"，优先用后端文案
     if(res.status === 429) throw new Error(String(raw || '今天的额度用完了，明天再试。').slice(0,200));
     if(res.status === 404) throw new Error('服务器还没配置转发接口（函数未部署），去设置里填自己的 Key 吧。');
+    // 5xx 时后端通常写了具体原因（比如没配 VISION_KEY），优先透出来
+    if(res.status >= 500){
+      const msg = String(raw || '').trim();
+      if(msg) throw new Error('服务器出错了：' + msg.slice(0, 160));
+    }
     throw new Error(friendlyHTTPError(res.status, raw));
   }
 
@@ -2347,16 +2359,28 @@ async function testConn(){
         图片走视觉模型；回答完抽知识点，给一个"练一题"按钮。
    ========================================================= */
 let chatPendingImg = null;   // {dataUrl, name}
+let chatImgBusy = false;     // 图片是否正在压缩，压缩中禁止发送
 
 document.getElementById('chatImg').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   if(!file) return;
   const pv0 = document.getElementById('chatImgPreview');
+  chatImgBusy = true;
+  chatPendingImg = null;
   pv0.innerHTML = '<span class="muted">压缩中…</span>';
+
+  const fail = (msg)=>{
+    chatImgBusy = false;
+    chatPendingImg = null;
+    pv0.innerHTML = '<span class="muted" style="color:var(--rose)">'+msg+'</span>';
+  };
+
   const reader = new FileReader();
+  reader.onerror = ()=> fail('这张图读不出来，换一张试试');
   reader.onload = ()=>{
     // 压缩：最长边 800px / 质量 0.75；若仍超过 900KB，再降到 700px / 0.65
     const img = new Image();
+    img.onerror = ()=> fail('这张图打不开（格式不支持或已损坏），换一张试试');
     img.onload = ()=>{
       const encode = (max, q)=>{
         let {width, height} = img;
@@ -2366,12 +2390,16 @@ document.getElementById('chatImg').addEventListener('change', (e)=>{
         }
         const cv = document.createElement('canvas');
         cv.width = width; cv.height = height;
-        cv.getContext('2d').drawImage(img, 0, 0, width, height);
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#fff';                 // PNG 透明区域转 JPEG 会变黑，先铺白底
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
         return cv.toDataURL('image/jpeg', q);
       };
       let dataUrl = encode(800, 0.75);
       if(dataUrl.length > 900*1024) dataUrl = encode(700, 0.65); // 兜底再压一档
       chatPendingImg = { dataUrl, name:file.name };
+      chatImgBusy = false;
       const pv = document.getElementById('chatImgPreview');
       pv.innerHTML = `<img src="${chatPendingImg.dataUrl}"><button class="btn ghost" data-act="clear-img" style="padding:4px 10px;font-size:12px">移除</button>`;
     };
@@ -2394,6 +2422,12 @@ document.getElementById('chatInput').addEventListener('keydown', (e)=>{
 });
 
 async function sendChat(){
+  // 图片还在压缩时不许发，否则图片会静默丢失
+  if(chatImgBusy){
+    const pv = document.getElementById('chatImgPreview');
+    if(pv) pv.innerHTML = '<span class="muted" style="color:var(--neon-amber)">图片还在压缩，等一两秒再发～</span>';
+    return;
+  }
   const input = document.getElementById('chatInput');
   const text = input.value.trim();
   if(!text && !chatPendingImg) return;
